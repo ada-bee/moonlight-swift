@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Xcode user and build artifacts
+DerivedData/
+build/
+.direnv/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Python / local tooling
+.ruff_cache/
+.envrc
+.opencode
+
+# Logs and runtime data
+logs/
+tmp/
+
+# Local config overrides
+configs/local.json
+configs/secrets.json
+
+# Local pairing state
+tools/.quick-pair/

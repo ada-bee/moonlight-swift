@@ -1,5 +1,35 @@
 // swift-tools-version: 6.2
+import Foundation
 import PackageDescription
+
+let environment = ProcessInfo.processInfo.environment
+let mbedTLSPrefix = environment["MBEDTLS_PREFIX"]
+let mbedTLSIncludeDir = environment["MBEDTLS_INCLUDE_DIR"] ?? mbedTLSPrefix.map { "\($0)/include" }
+let mbedTLSLibDir = environment["MBEDTLS_LIB_DIR"] ?? mbedTLSPrefix.map { "\($0)/lib" }
+
+let mbedTLSCSettings: [CSetting] = {
+    var settings: [CSetting] = [
+        .define("USE_MBEDTLS")
+    ]
+
+    if let mbedTLSIncludeDir {
+        settings.append(.unsafeFlags(["-I\(mbedTLSIncludeDir)"]))
+    }
+
+    return settings
+}()
+
+let mbedTLSLinkerSettings: [LinkerSetting] = {
+    var settings: [LinkerSetting] = [
+        .linkedLibrary("mbedcrypto")
+    ]
+
+    if let mbedTLSLibDir {
+        settings.insert(.unsafeFlags(["-L\(mbedTLSLibDir)"]), at: 0)
+    }
+
+    return settings
+}()
 
 let package = Package(
     name: "moonlight-swift",
@@ -94,12 +124,9 @@ let package = Package(
                 .headerSearchPath("nanors/deps/simde"),
                 .headerSearchPath("../vendor/moonlight-common-c/enet/include"),
                 .define("__APPLE_USE_RFC_3542", to: "1"),
-                .define("HAS_SOCKLEN_T"),
-                .unsafeFlags(["-I/nix/store/1178sl0xnnjkjs9663gavn0cck4rx6pr-openssl-3.6.1-dev/include"])
-            ],
-            linkerSettings: [
-                .unsafeFlags(["-L/nix/store/ar3higrpqx1sbx9m28i5crsgmaffki49-openssl-3.6.1/lib", "-lcrypto"])
-            ]
+                .define("HAS_SOCKLEN_T")
+            ] + mbedTLSCSettings,
+            linkerSettings: mbedTLSLinkerSettings
         ),
         .target(
             name: "CMoonlightBridgeSupport",
