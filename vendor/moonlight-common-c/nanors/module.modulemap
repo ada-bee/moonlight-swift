@@ -1,0 +1,7 @@
+module CNanoRS [system] {
+    header "rs.h"
+    header "deps/obl/oblas_lite.h"
+    header "deps/obl/gf2_8_tables.h"
+    header "deps/obl/gf2_8_mul_table.h"
+    export *
+}

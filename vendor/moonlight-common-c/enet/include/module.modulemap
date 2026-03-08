@@ -1,0 +1,4 @@
+module CEnet [system] {
+    umbrella header "enet/enet.h"
+    export *
+}
