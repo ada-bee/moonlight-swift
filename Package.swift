@@ -10,7 +10,7 @@ let openSSLLibDir = environment["OPENSSL_LIB_DIR"] ?? openSSLPrefix.map { "\($0)
 let openSSLCSettings = openSSLIncludeDir.map { [CSetting.unsafeFlags(["-I\($0)"])] } ?? []
 let openSSLLinkerSettings =
     (openSSLLibDir.map { [LinkerSetting.unsafeFlags(["-L\($0)"])] } ?? [])
-    + [.linkedLibrary("crypto")]
+    + [.linkedLibrary("ssl"), .linkedLibrary("crypto")]
 
 let package = Package(
     name: "moonlight-swift",
@@ -113,7 +113,11 @@ let package = Package(
             name: "CMoonlightBridgeSupport",
             dependencies: ["CMoonlightCommon"],
             path: "core/cbridge",
-            publicHeadersPath: "."
+            publicHeadersPath: ".",
+            cSettings: [
+                .headerSearchPath("../../vendor/moonlight-common-c/src")
+            ] + openSSLCSettings,
+            linkerSettings: openSSLLinkerSettings
         ),
         .target(
             name: "MoonlightCore",

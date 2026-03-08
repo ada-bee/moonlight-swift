@@ -40,16 +40,23 @@ public final class HostSessionBootstrapper {
     private let configuration: MVPConfiguration
     private let pairedIdentity: PairedIdentityState
     private let launchSession: LaunchSessionContext
+    private let httpClient: PairingHTTPClient
 
-    public init(configuration: MVPConfiguration, pairedIdentity: PairedIdentityState, launchSession: LaunchSessionContext) {
+    public init(
+        configuration: MVPConfiguration,
+        pairedIdentity: PairedIdentityState,
+        launchSession: LaunchSessionContext,
+        httpClient: PairingHTTPClient = PairingHTTPClient()
+    ) {
         self.configuration = configuration
         self.pairedIdentity = pairedIdentity
         self.launchSession = launchSession
+        self.httpClient = httpClient
     }
 
     public func bootstrap() async throws -> BootstrappedServerInfo {
-        let serverInfoFields = try fetchServerInfoFields()
-        let rtspURL = try requestSessionRTSPURL(endpoint: "/launch", verb: "launch")
+        let serverInfoFields = try await fetchServerInfoFields()
+        let rtspURL = try await requestSessionRTSPURL(endpoint: "/launch", verb: "launch")
 
         let appVersion = serverInfoFields["appversion"] ?? HostSessionBootstrapDefaults.appVersion
         let gfeVersion = serverInfoFields["GfeVersion"] ?? HostSessionBootstrapDefaults.gfeVersion
@@ -61,26 +68,40 @@ public final class HostSessionBootstrapper {
         )
     }
 
-    private func fetchServerInfoFields() throws -> [String: String] {
+    private func fetchServerInfoFields() async throws -> [String: String] {
         let queryItems = [
             URLQueryItem(name: "uniqueid", value: pairedIdentity.uniqueID),
             URLQueryItem(name: "uuid", value: requestUUID())
         ]
 
-        let httpsURL = try makeURL(scheme: "https", port: httpsPort, path: "/serverinfo", queryItems: queryItems)
         do {
-            let fields = try requestXMLFields(url: httpsURL, useClientCertificate: true)
-            try validateHostResponse(fields, endpoint: "/serverinfo")
-            return fields
+            let response = try await httpClient.getHTTPSXML(
+                host: .init(address: configuration.host.address, port: configuration.host.port),
+                httpsPort: httpsPort,
+                path: "/serverinfo",
+                queryItems: queryItems,
+                identity: HTTPSClientIdentity(
+                    certificateURL: pairedIdentity.certificateURL,
+                    privateKeyURL: pairedIdentity.privateKeyURL,
+                    pinnedServerCertificatePEM: pairedIdentity.serverCertificatePEM
+                ),
+                timeout: 12
+            )
+            try response.requireOK(action: "/serverinfo")
+            return combinedFields(from: response)
         } catch {
-            let httpURL = try makeURL(scheme: "http", port: configuration.host.port, path: "/serverinfo", queryItems: queryItems)
-            let fields = try requestXMLFields(url: httpURL, useClientCertificate: false)
-            try validateHostResponse(fields, endpoint: "/serverinfo")
-            return fields
+            let response = try await httpClient.getHTTPXML(
+                host: .init(address: configuration.host.address, port: configuration.host.port),
+                path: "/serverinfo",
+                queryItems: queryItems,
+                timeout: 12
+            )
+            try response.requireOK(action: "/serverinfo")
+            return combinedFields(from: response)
         }
     }
 
-    private func requestSessionRTSPURL(endpoint: String, verb: String) throws -> String {
+    private func requestSessionRTSPURL(endpoint: String, verb: String) async throws -> String {
         var queryItems = [
             URLQueryItem(name: "uniqueid", value: pairedIdentity.uniqueID),
             URLQueryItem(name: "uuid", value: requestUUID()),
@@ -101,8 +122,21 @@ public final class HostSessionBootstrapper {
             queryItems.append(URLQueryItem(name: "corever", value: "1"))
         }
 
-        let url = try makeURL(scheme: "https", port: httpsPort, path: endpoint, queryItems: queryItems)
-        let fields = try requestXMLFields(url: url, useClientCertificate: true)
+        let response = try await httpClient.getHTTPSXML(
+            host: .init(address: configuration.host.address, port: configuration.host.port),
+            httpsPort: httpsPort,
+            path: endpoint,
+            queryItems: queryItems,
+            identity: HTTPSClientIdentity(
+                certificateURL: pairedIdentity.certificateURL,
+                privateKeyURL: pairedIdentity.privateKeyURL,
+                pinnedServerCertificatePEM: pairedIdentity.serverCertificatePEM
+            ),
+            timeout: 12
+        )
+        try response.requireOK(action: endpoint)
+        let fields = combinedFields(from: response)
+
         try validateHostResponse(fields, endpoint: endpoint)
         try validateSessionResponse(fields, endpoint: endpoint, verb: verb)
 
@@ -148,109 +182,9 @@ public final class HostSessionBootstrapper {
         UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
-    private func makeURL(scheme: String, port: Int, path: String, queryItems: [URLQueryItem]) throws -> URL {
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = configuration.host.address
-        components.port = port
-        components.path = path
-        components.queryItems = queryItems
-
-        guard let url = components.url else {
-            throw HostSessionBootstrapperError.invalidURL
-        }
-
-        return url
-    }
-
-    private func requestXMLFields(url: URL, useClientCertificate: Bool) throws -> [String: String] {
-        let xmlText = try executeCurl(url: url, useClientCertificate: useClientCertificate)
-        let parser = XMLFieldParser()
-        parser.parse(data: Data(xmlText.utf8))
-        return parser.fields
-    }
-
-    private func executeCurl(url: URL, useClientCertificate: Bool) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        process.qualityOfService = .userInitiated
-
-        var arguments = [
-            "--silent",
-            "--show-error",
-            "--fail-with-body",
-            "--max-time", "12",
-            "--get",
-            url.absoluteString
-        ]
-
-        if url.scheme == "https" {
-            arguments.append(contentsOf: ["--insecure"])
-            if useClientCertificate {
-                arguments.append(contentsOf: [
-                    "--cert", pairedIdentity.certificateURL.path,
-                    "--key", pairedIdentity.privateKeyURL.path
-                ])
-            }
-        }
-
-        process.arguments = arguments
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        do {
-            try process.run()
-        } catch {
-            throw HostSessionBootstrapperError.requestFailed(error.localizedDescription)
-        }
-
-        process.waitUntilExit()
-
-        let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let errorOutput = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-
-        guard process.terminationStatus == 0 else {
-            throw HostSessionBootstrapperError.requestFailed(errorOutput.isEmpty ? output : errorOutput)
-        }
-
-        return output
+    private func combinedFields(from response: PairingXMLResponse) -> [String: String] {
+        response.rootAttributes.merging(response.fields, uniquingKeysWith: { _, new in new })
     }
 }
 
 extension HostSessionBootstrapper: @unchecked Sendable {}
-
-private final class XMLFieldParser: NSObject, XMLParserDelegate {
-    private(set) var fields: [String: String] = [:]
-    private var currentText = ""
-
-    func parse(data: Data) {
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        parser.parse()
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
-        currentText = ""
-
-        if elementName == "root" {
-            for (key, value) in attributeDict {
-                fields[key] = value
-            }
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        currentText.append(string)
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            fields[elementName] = trimmed
-        }
-        currentText = ""
-    }
-}

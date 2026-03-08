@@ -1,28 +1,33 @@
 import AppKit
-import MoonlightCore
+import SwiftUI
 
 @main
-final class AppMain: NSObject, NSApplicationDelegate {
-    private var appDelegate: AppDelegate?
+struct AppMain: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var coordinator: AppCoordinator
+    @StateObject private var mainWindowModel: MainWindowModel
 
-    static func main() {
-        let application = NSApplication.shared
-        let delegate = AppMain()
-        application.delegate = delegate
-        application.setActivationPolicy(.regular)
-        application.run()
+    init() {
+        let coordinator = AppCoordinator()
+        _coordinator = StateObject(wrappedValue: coordinator)
+        _mainWindowModel = StateObject(wrappedValue: MainWindowModel(coordinator: coordinator))
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        appDelegate = AppDelegate()
-        appDelegate?.applicationDidFinishLaunching(notification)
-    }
+    var body: some Scene {
+        WindowGroup {
+            MainWindowView(model: mainWindowModel)
+                .frame(minWidth: 760, minHeight: 560)
+                .task {
+                    appDelegate.coordinator = coordinator
+                    coordinator.loadStartupState()
+                }
+        }
+        .defaultSize(width: 980, height: 680)
 
-    func applicationWillTerminate(_ notification: Notification) {
-        appDelegate?.applicationWillTerminate(notification)
-    }
-
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        appDelegate?.applicationShouldTerminate(sender) ?? .terminateNow
+        Settings {
+            SettingsView(coordinator: coordinator)
+                .frame(width: 420)
+                .padding(24)
+        }
     }
 }
