@@ -10,11 +10,16 @@ final class StreamWindowController: NSWindowController {
         let window = NSWindow(contentViewController: viewController)
         let resolution = sessionController.configuration.video.resolution
         let contentSize = NSSize(width: resolution.width, height: resolution.height)
-        window.title = "Moonlight"
         window.setContentSize(contentSize)
         window.contentMinSize = contentSize
         window.contentMaxSize = contentSize
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.styleMask = [.borderless]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = false
         window.center()
         super.init(window: window)
     }

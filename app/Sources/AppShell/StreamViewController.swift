@@ -20,6 +20,9 @@ final class StreamViewController: NSViewController {
         view = NSView()
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.black.cgColor
+        view.layer?.cornerRadius = 14
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
     }
 
     override func viewDidLoad() {
