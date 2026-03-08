@@ -3,33 +3,14 @@ import Foundation
 import PackageDescription
 
 let environment = ProcessInfo.processInfo.environment
-let mbedTLSPrefix = environment["MBEDTLS_PREFIX"]
-let mbedTLSIncludeDir = environment["MBEDTLS_INCLUDE_DIR"] ?? mbedTLSPrefix.map { "\($0)/include" }
-let mbedTLSLibDir = environment["MBEDTLS_LIB_DIR"] ?? mbedTLSPrefix.map { "\($0)/lib" }
+let openSSLPrefix = environment["OPENSSL_PREFIX"]
+let openSSLIncludeDir = environment["OPENSSL_INCLUDE_DIR"] ?? openSSLPrefix.map { "\($0)/include" }
+let openSSLLibDir = environment["OPENSSL_LIB_DIR"] ?? openSSLPrefix.map { "\($0)/lib" }
 
-let mbedTLSCSettings: [CSetting] = {
-    var settings: [CSetting] = [
-        .define("USE_MBEDTLS")
-    ]
-
-    if let mbedTLSIncludeDir {
-        settings.append(.unsafeFlags(["-I\(mbedTLSIncludeDir)"]))
-    }
-
-    return settings
-}()
-
-let mbedTLSLinkerSettings: [LinkerSetting] = {
-    var settings: [LinkerSetting] = [
-        .linkedLibrary("mbedcrypto")
-    ]
-
-    if let mbedTLSLibDir {
-        settings.insert(.unsafeFlags(["-L\(mbedTLSLibDir)"]), at: 0)
-    }
-
-    return settings
-}()
+let openSSLCSettings = openSSLIncludeDir.map { [CSetting.unsafeFlags(["-I\($0)"])] } ?? []
+let openSSLLinkerSettings =
+    (openSSLLibDir.map { [LinkerSetting.unsafeFlags(["-L\($0)"])] } ?? [])
+    + [.linkedLibrary("crypto")]
 
 let package = Package(
     name: "moonlight-swift",
@@ -125,8 +106,8 @@ let package = Package(
                 .headerSearchPath("../vendor/moonlight-common-c/enet/include"),
                 .define("__APPLE_USE_RFC_3542", to: "1"),
                 .define("HAS_SOCKLEN_T")
-            ] + mbedTLSCSettings,
-            linkerSettings: mbedTLSLinkerSettings
+            ] + openSSLCSettings,
+            linkerSettings: openSSLLinkerSettings
         ),
         .target(
             name: "CMoonlightBridgeSupport",

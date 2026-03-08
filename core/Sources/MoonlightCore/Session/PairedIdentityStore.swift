@@ -47,13 +47,21 @@ public enum PairedIdentityStoreError: Error, LocalizedError {
 
 public struct PairedIdentityStore {
     private let fileManager: FileManager
-    private let baseDirectoryURL: URL
+    private let baseDirectoryURL: URL?
+    private let currentDirectoryURL: URL
+    private let executableURL: URL
 
     public init(baseDirectory: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
         self.baseDirectoryURL = baseDirectory
-            ?? Self.discoveredRepositoryRoot(fileManager: fileManager)
-            ?? URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+        self.currentDirectoryURL = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+
+        let argv0 = CommandLine.arguments.first ?? ""
+        if argv0.hasPrefix("/") {
+            self.executableURL = URL(fileURLWithPath: argv0)
+        } else {
+            self.executableURL = currentDirectoryURL.appendingPathComponent(argv0)
+        }
     }
 
     public func load(forHostAddress hostAddress: String) throws -> PairedIdentityState {
@@ -61,11 +69,24 @@ public struct PairedIdentityStore {
     }
 
     private func loadDiscoveredIdentity(forHostAddress hostAddress: String) throws -> PairedIdentityState {
-        let quickPairDirectory = baseDirectoryURL.appendingPathComponent("tools/.quick-pair", isDirectory: true)
-        guard fileManager.fileExists(atPath: quickPairDirectory.path) else {
-            throw PairedIdentityStoreError.missingPairedIdentity(hostAddress)
+        for root in searchRoots() {
+            let quickPairDirectory = root.appendingPathComponent("tools/.quick-pair", isDirectory: true)
+            guard fileManager.fileExists(atPath: quickPairDirectory.path) else {
+                continue
+            }
+
+            if let state = try loadLatestIdentity(in: quickPairDirectory, forHostAddress: hostAddress) {
+                return state
+            }
         }
 
+        throw PairedIdentityStoreError.missingPairedIdentity(hostAddress)
+    }
+
+    private func loadLatestIdentity(
+        in quickPairDirectory: URL,
+        forHostAddress hostAddress: String
+    ) throws -> PairedIdentityState? {
         let contents = try fileManager.contentsOfDirectory(
             at: quickPairDirectory,
             includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
@@ -86,7 +107,12 @@ public struct PairedIdentityStore {
             }
 
             let metadataData = try Data(contentsOf: metadataURL)
-            let metadata = try JSONDecoder().decode(QuickPairMetadata.self, from: metadataData)
+            let metadata: QuickPairMetadata
+            do {
+                metadata = try JSONDecoder().decode(QuickPairMetadata.self, from: metadataData)
+            } catch {
+                throw PairedIdentityStoreError.invalidMetadata(metadataURL)
+            }
             let certificateURL = candidate.appendingPathComponent(metadata.paths.clientCert)
             let privateKeyURL = candidate.appendingPathComponent(metadata.paths.clientKey)
             let serverCertificateURL = candidate.appendingPathComponent(metadata.paths.serverCert)
@@ -108,7 +134,7 @@ public struct PairedIdentityStore {
             )
         }
 
-        throw PairedIdentityStoreError.missingPairedIdentity(hostAddress)
+        return nil
     }
 
     private func loadFile(at url: URL) throws -> Data {
@@ -135,6 +161,49 @@ public struct PairedIdentityStore {
 
             currentURL = parentURL
         }
+    }
+
+    private func searchRoots() -> [URL] {
+        var roots: [URL] = []
+        var seen: Set<String> = []
+
+        let directRoots = [
+            baseDirectoryURL,
+            Self.discoveredRepositoryRoot(fileManager: fileManager),
+            currentDirectoryURL,
+            executableURL.deletingLastPathComponent(),
+            Bundle.main.bundleURL.deletingLastPathComponent()
+        ].compactMap { $0?.standardizedFileURL }
+
+        for root in directRoots {
+            for ancestor in pathAncestors(of: root) {
+                if seen.insert(ancestor.path).inserted {
+                    roots.append(ancestor)
+                }
+            }
+        }
+
+        return roots
+    }
+
+    private func pathAncestors(of start: URL) -> [URL] {
+        var results: [URL] = []
+        var currentPath = start.standardizedFileURL.path
+
+        while true {
+            results.append(URL(fileURLWithPath: currentPath, isDirectory: true))
+            let parentPath = (currentPath as NSString).deletingLastPathComponent
+            if parentPath.isEmpty || parentPath == currentPath {
+                break
+            }
+            currentPath = parentPath
+        }
+
+        if results.last?.path != "/" {
+            results.append(URL(fileURLWithPath: "/", isDirectory: true))
+        }
+
+        return results
     }
 }
 
