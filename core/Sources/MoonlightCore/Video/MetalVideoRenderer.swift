@@ -54,28 +54,6 @@ private func metalVideoRendererDecodeCallback(
     )
 }
 
-private let metalVideoRendererDisplayLinkCallback: CVDisplayLinkOutputCallback = {
-    displayLink,
-    inNow,
-    inOutputTime,
-    flagsIn,
-    flagsOut,
-    displayLinkContext in
-    _ = displayLink
-    _ = inNow
-    _ = inOutputTime
-    _ = flagsIn
-    _ = flagsOut
-
-    guard let displayLinkContext else {
-        return kCVReturnSuccess
-    }
-
-    let renderer = Unmanaged<MetalVideoRenderer>.fromOpaque(displayLinkContext).takeUnretainedValue()
-    renderer.handleDisplayLinkTick()
-    return kCVReturnSuccess
-}
-
 public final class MetalVideoRenderer: NSObject, VideoFrameRenderer {
     public let rendererName = "VideoToolbox + Metal"
     public var onError: (@Sendable (String) -> Void)?
@@ -93,7 +71,7 @@ public final class MetalVideoRenderer: NSObject, VideoFrameRenderer {
     private weak var hostView: VideoRendererView?
     private var metalDevice: MTLDevice?
     private var metalLayer: CAMetalLayer?
-    private var displayLink: CVDisplayLink?
+    private var displayLink: CADisplayLink?
     private var shaderLibrary: MTLLibrary?
     private var commandQueue: MTLCommandQueue?
     private var renderPipelineState: MTLRenderPipelineState?
@@ -117,7 +95,13 @@ public final class MetalVideoRenderer: NSObject, VideoFrameRenderer {
     }
 
     deinit {
-        stopDisplayLinkIfNeeded()
+        if Thread.isMainThread {
+            displayLink?.invalidate()
+        } else {
+            DispatchQueue.main.sync {
+                self.displayLink?.invalidate()
+            }
+        }
     }
 
     public func attach(to hostView: VideoRendererView) {
@@ -168,7 +152,10 @@ public final class MetalVideoRenderer: NSObject, VideoFrameRenderer {
 
     public func cleanup() {
         stopDisplayLinkIfNeeded()
-        displayLink = nil
+        runOnMainSync {
+            self.displayLink?.invalidate()
+            self.displayLink = nil
+        }
 
         stateQueue.sync {
             self.decoderConfiguration = nil
@@ -339,7 +326,6 @@ private extension MetalVideoRenderer {
             self.clearError("Failed to create Metal texture cache")
             self.updateMetalLayerFrame(hostView.bounds)
             self.updateMetalConfiguration()
-            self.updateDisplayLinkTargetIfPossible()
         }
     }
 
@@ -371,81 +357,59 @@ private extension MetalVideoRenderer {
                 width: max(bounds.width * scale, 1),
                 height: max(bounds.height * scale, 1)
             )
-            self.updateDisplayLinkTargetIfPossible()
         }
     }
 
     func ensureDisplayLinkIfNeeded() {
         guard displayLink == nil else {
-            updateDisplayLinkTargetIfPossible()
             return
         }
 
-        var createdDisplayLink: CVDisplayLink?
-        let status = CVDisplayLinkCreateWithActiveCGDisplays(&createdDisplayLink)
-        guard status == kCVReturnSuccess, let createdDisplayLink else {
-            reportError("Failed to create display link: \(status)")
+        runOnMainSync {
+            guard let hostView = self.hostView else {
+                return
+            }
+
+            let displayLink = hostView.displayLink(target: self, selector: #selector(self.handleAppKitDisplayLinkTick(_:)))
+            displayLink.add(to: .main, forMode: .common)
+            displayLink.isPaused = true
+            self.displayLink = displayLink
+        }
+        guard displayLink != nil else {
+            reportError("Failed to create display link")
             return
         }
 
-        let callbackStatus = CVDisplayLinkSetOutputCallback(
-            createdDisplayLink,
-            metalVideoRendererDisplayLinkCallback,
-            Unmanaged.passUnretained(self).toOpaque()
-        )
-        guard callbackStatus == kCVReturnSuccess else {
-            reportError("Failed to install display link callback: \(callbackStatus)")
-            return
-        }
-
-        displayLink = createdDisplayLink
         clearError("Failed to create display link")
-        clearError("Failed to install display link callback")
-        updateDisplayLinkTargetIfPossible()
     }
 
     func startDisplayLinkIfNeeded() {
         ensureDisplayLinkIfNeeded()
-        guard let displayLink, !CVDisplayLinkIsRunning(displayLink) else {
+        guard let displayLink, displayLink.isPaused else {
             return
         }
 
-        updateDisplayLinkTargetIfPossible()
-        let status = CVDisplayLinkStart(displayLink)
-        guard status == kCVReturnSuccess else {
-            reportError("Failed to start display link: \(status)")
-            return
+        runOnMainSync {
+            displayLink.isPaused = false
         }
 
         clearError("Failed to start display link")
     }
 
     func stopDisplayLinkIfNeeded() {
-        guard let displayLink, CVDisplayLinkIsRunning(displayLink) else {
+        guard let displayLink, !displayLink.isPaused else {
             return
         }
 
-        CVDisplayLinkStop(displayLink)
+        runOnMainSync {
+            displayLink.isPaused = true
+        }
     }
 
-    func updateDisplayLinkTargetIfPossible() {
-        guard let displayLink else {
-            return
-        }
-
-        let displayID: CGDirectDisplayID? = runOnMainSync {
-            guard let screenNumber = self.hostView?.window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-                return nil
-            }
-
-            return CGDirectDisplayID(screenNumber.uint32Value)
-        }
-
-        guard let displayID else {
-            return
-        }
-
-        CVDisplayLinkSetCurrentCGDisplay(displayLink, displayID)
+    @objc
+    func handleAppKitDisplayLinkTick(_ displayLink: CADisplayLink) {
+        _ = displayLink
+        handleDisplayLinkTick()
     }
 
     func handleDisplayLinkTick() {
@@ -842,7 +806,7 @@ private extension MetalVideoRenderer {
             throw MetalRendererError.shaderResourceMissing
         }
 
-        let shaderSource = try String(contentsOf: shaderURL)
+        let shaderSource = try String(contentsOf: shaderURL, encoding: .utf8)
         return try device.makeLibrary(source: shaderSource, options: nil)
     }
 
