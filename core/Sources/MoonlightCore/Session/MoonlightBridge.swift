@@ -201,6 +201,41 @@ public final class MoonlightBridge {
         semaphore.wait()
     }
 
+    public func sendRelativeMouse(deltaX: Int16, deltaY: Int16) {
+        _ = LiSendMouseMoveEvent(deltaX, deltaY)
+    }
+
+    public func sendAbsoluteMouse(x: Int16, y: Int16, referenceWidth: Int16, referenceHeight: Int16) {
+        _ = LiSendMousePositionEvent(x, y, referenceWidth, referenceHeight)
+    }
+
+    public func sendMouseButton(action: Int8, button: Int32) {
+        _ = LiSendMouseButtonEvent(action, button)
+    }
+
+    public func sendHighResolutionScroll(delta: Int16) {
+        _ = LiSendHighResScrollEvent(delta)
+    }
+
+    public func sendHighResolutionHorizontalScroll(delta: Int16) {
+        _ = LiSendHighResHScrollEvent(delta)
+    }
+
+    public func sendKeyboard(keyCode: UInt16, action: Int8, modifiers: UInt8, flags: UInt8) {
+        _ = LiSendKeyboardEvent2(Int16(bitPattern: 0x8000 | keyCode), action, Int8(bitPattern: modifiers), Int8(bitPattern: flags))
+    }
+
+    public func sendText(_ text: String) {
+        let utf8 = Array(text.utf8)
+        utf8.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else {
+                return
+            }
+
+            _ = LiSendUtf8TextEvent(UnsafePointer<CChar>(OpaquePointer(baseAddress)), UInt32(buffer.count))
+        }
+    }
+
     private static func fillRemoteInputConfiguration(from launchSession: LaunchSessionContext, into streamConfig: inout STREAM_CONFIGURATION) {
         _ = launchSession.riKey.withUnsafeBytes { rawBuffer in
             memcpy(&streamConfig.remoteInputAesKey, rawBuffer.baseAddress, 16)

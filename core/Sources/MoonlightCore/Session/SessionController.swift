@@ -11,11 +11,53 @@ public final class SessionController: NSObject, ObservableObject {
         case stopped
     }
 
+    public enum MouseButton: Int32 {
+        case left = 0x01
+        case middle = 0x02
+        case right = 0x03
+        case x1 = 0x04
+        case x2 = 0x05
+    }
+
+    public enum MouseButtonAction: Int8 {
+        case press = 0x07
+        case release = 0x08
+    }
+
+    public enum KeyboardAction: Int8 {
+        case down = 0x03
+        case up = 0x04
+    }
+
+    public struct KeyboardModifiers: OptionSet, Sendable {
+        public let rawValue: UInt8
+
+        public init(rawValue: UInt8) {
+            self.rawValue = rawValue
+        }
+
+        public static let shift = KeyboardModifiers(rawValue: 0x01)
+        public static let control = KeyboardModifiers(rawValue: 0x02)
+        public static let alternate = KeyboardModifiers(rawValue: 0x04)
+        public static let meta = KeyboardModifiers(rawValue: 0x08)
+    }
+
+    public struct KeyboardFlags: OptionSet, Sendable {
+        public let rawValue: UInt8
+
+        public init(rawValue: UInt8) {
+            self.rawValue = rawValue
+        }
+
+        public static let nonNormalized = KeyboardFlags(rawValue: 0x01)
+    }
+
     @Published public private(set) var state: State = .idle
     @Published public private(set) var stageName: String = "Idle"
     @Published public private(set) var lastErrorDescription: String?
 
     public let configuration: MVPConfiguration
+    public var onInputResetRequested: (@MainActor () -> Void)?
 
     private let bridge: MoonlightBridge
     private let renderer: VideoFrameRenderer
@@ -73,6 +115,81 @@ public final class SessionController: NSObject, ObservableObject {
         stopAndWait {}
     }
 
+    public func sendRelativeMouse(deltaX: Int32, deltaY: Int32) {
+        guard state == .streaming else {
+            return
+        }
+
+        bridge.sendRelativeMouse(deltaX: Int16(clamping: deltaX), deltaY: Int16(clamping: deltaY))
+    }
+
+    public func sendAbsoluteMouse(x: Int32, y: Int32, referenceWidth: Int32, referenceHeight: Int32) {
+        guard state == .streaming else {
+            return
+        }
+
+        guard referenceWidth > 0, referenceHeight > 0 else {
+            return
+        }
+
+        bridge.sendAbsoluteMouse(
+            x: Int16(clamping: x),
+            y: Int16(clamping: y),
+            referenceWidth: Int16(clamping: referenceWidth),
+            referenceHeight: Int16(clamping: referenceHeight)
+        )
+    }
+
+    public func sendMouseButton(_ button: MouseButton, action: MouseButtonAction) {
+        guard state == .streaming else {
+            return
+        }
+
+        bridge.sendMouseButton(action: action.rawValue, button: button.rawValue)
+    }
+
+    public func sendScroll(delta: Int32) {
+        guard state == .streaming else {
+            return
+        }
+
+        bridge.sendHighResolutionScroll(delta: Int16(clamping: delta))
+    }
+
+    public func sendHorizontalScroll(delta: Int32) {
+        guard state == .streaming else {
+            return
+        }
+
+        bridge.sendHighResolutionHorizontalScroll(delta: Int16(clamping: delta))
+    }
+
+    public func sendKeyboard(
+        virtualKey: UInt16,
+        action: KeyboardAction,
+        modifiers: KeyboardModifiers = [],
+        flags: KeyboardFlags = []
+    ) {
+        guard state == .streaming else {
+            return
+        }
+
+        bridge.sendKeyboard(
+            keyCode: virtualKey,
+            action: action.rawValue,
+            modifiers: modifiers.rawValue,
+            flags: flags.rawValue
+        )
+    }
+
+    public func sendText(_ text: String) {
+        guard state == .streaming else {
+            return
+        }
+
+        bridge.sendText(text)
+    }
+
     public var shouldDelayApplicationTermination: Bool {
         switch state {
         case .connecting, .streaming:
@@ -85,6 +202,7 @@ public final class SessionController: NSObject, ObservableObject {
     public func stopAndWait(_ completion: @escaping @MainActor () -> Void) {
         let shouldStopBridge = shouldDelayApplicationTermination
 
+        requestInputReset()
         state = .stopped
         stageName = shouldStopBridge ? "Stopping" : "Stopped"
         endStreamingActivity()
@@ -125,6 +243,12 @@ public final class SessionController: NSObject, ObservableObject {
         ProcessInfo.processInfo.endActivity(activeStreamingActivity)
         self.activeStreamingActivity = nil
     }
+
+    private func requestInputReset() {
+        DispatchQueue.main.async {
+            self.onInputResetRequested?()
+        }
+    }
 }
 
 extension SessionController: @unchecked Sendable {}
@@ -141,6 +265,7 @@ extension SessionController: MoonlightBridgeDelegate {
 
     public func bridgeDidTerminateConnection(errorCode: Int32) {
         endStreamingActivity()
+        requestInputReset()
         stageName = "Terminated"
         state = .stopped
         if errorCode != 0 {
@@ -150,6 +275,7 @@ extension SessionController: MoonlightBridgeDelegate {
 
     public func bridgeDidFailStage(_ name: String, errorCode: Int32) {
         endStreamingActivity()
+        requestInputReset()
         stageName = name
         state = .failed
         lastErrorDescription = "Stage \(name) failed with code \(errorCode)"

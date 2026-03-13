@@ -5,9 +5,11 @@ import MoonlightCore
 final class StreamViewController: NSViewController {
     private let sessionController: SessionController
     private let rendererView = VideoRendererView(frame: .zero)
+    private let inputView: StreamInputView
 
     init(sessionController: SessionController) {
         self.sessionController = sessionController
+        self.inputView = StreamInputView(sessionController: sessionController)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -17,12 +19,7 @@ final class StreamViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.black.cgColor
-        view.layer?.cornerRadius = 14
-        view.layer?.cornerCurve = .continuous
-        view.layer?.masksToBounds = true
+        view = inputView
     }
 
     override func viewDidLoad() {
@@ -32,15 +29,19 @@ final class StreamViewController: NSViewController {
     }
 
     private func layoutViews() {
-        rendererView.translatesAutoresizingMaskIntoConstraints = false
+        inputView.rendererView = rendererView
+    }
 
-        view.addSubview(rendererView)
+    func setFullscreenPresentation(_ isFullscreen: Bool) {
+        inputView.setFullscreenPresentation(isFullscreen)
+        inputView.isFullscreenPointerCaptureEnabled = isFullscreen
+    }
 
-        NSLayoutConstraint.activate([
-            rendererView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            rendererView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            rendererView.topAnchor.constraint(equalTo: view.topAnchor),
-            rendererView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+    func releaseAllRemoteInputs() {
+        inputView.releaseAllRemoteInputs()
+    }
+
+    func handleWindowDidResignKey() {
+        inputView.handleWindowDidResignKey()
     }
 }
