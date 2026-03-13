@@ -549,7 +549,7 @@ private extension MetalVideoRenderer {
         }
 
         let destinationAttributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+            kCVPixelBufferPixelFormatTypeKey: Int(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
             kCVPixelBufferMetalCompatibilityKey: true,
             kCVPixelBufferIOSurfacePropertiesKey: [:]
         ]
@@ -661,7 +661,7 @@ private extension MetalVideoRenderer {
             kCMFormatDescriptionExtension_ColorPrimaries: kCMFormatDescriptionColorPrimaries_ITU_R_709_2,
             kCMFormatDescriptionExtension_TransferFunction: kCMFormatDescriptionTransferFunction_ITU_R_709_2,
             kCMFormatDescriptionExtension_YCbCrMatrix: kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2,
-            kCMFormatDescriptionExtension_FullRangeVideo: false,
+            kCMFormatDescriptionExtension_FullRangeVideo: true,
             kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: sampleDescriptionAtoms
         ]
 
@@ -824,7 +824,7 @@ private extension MetalVideoRenderer {
         drawable: CAMetalDrawable,
         completion: (@Sendable () -> Void)? = nil
     ) -> Bool {
-        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else {
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else {
             reportError("Unexpected pixel format \(CVPixelBufferGetPixelFormatType(pixelBuffer))")
             return false
         }

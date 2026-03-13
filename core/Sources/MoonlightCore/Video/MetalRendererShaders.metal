@@ -28,7 +28,7 @@ fragment float4 metalVideoFragment(
     const float ySample = lumaTexture.sample(videoSampler, in.textureCoordinate).r;
     const float2 uvSample = chromaTexture.sample(videoSampler, in.textureCoordinate).rg;
 
-    const float y = saturate((ySample - (16.0 / 255.0)) * (255.0 / 219.0));
+    const float y = ySample;
     const float cb = uvSample.x - 0.5;
     const float cr = uvSample.y - 0.5;
 

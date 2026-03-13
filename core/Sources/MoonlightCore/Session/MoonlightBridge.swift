@@ -92,7 +92,7 @@ public final class MoonlightBridge {
             streamConfig.supportedVideoFormats = Int32(VIDEO_FORMAT_AV1_MAIN8)
             streamConfig.clientRefreshRateX100 = Int32(configuration.video.fps * 100)
             streamConfig.colorSpace = Int32(COLORSPACE_REC_709)
-            streamConfig.colorRange = Int32(COLOR_RANGE_LIMITED)
+            streamConfig.colorRange = Int32(COLOR_RANGE_FULL)
             streamConfig.encryptionFlags = Int32(ENCFLG_AUDIO)
 
             Self.fillRemoteInputConfiguration(from: launchSession, into: &streamConfig)
