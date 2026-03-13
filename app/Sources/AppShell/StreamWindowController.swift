@@ -16,12 +16,14 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
     let sessionController: SessionController
 
     private let streamViewController: StreamViewController
+    private let launchesFullscreen: Bool
     private var cursorCaptureEnabled = false
     private var cursorHidden = false
 
-    init(sessionController: SessionController) {
+    init(sessionController: SessionController, launchesFullscreen: Bool = false) {
         self.sessionController = sessionController
         self.streamViewController = StreamViewController(sessionController: sessionController)
+        self.launchesFullscreen = launchesFullscreen
 
         let contentRect = NSRect(origin: .zero, size: Self.streamContentSize(for: sessionController, screen: NSScreen.main))
         let window = StreamWindow(
@@ -67,6 +69,22 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func toggleFullScreen() {
         window?.toggleFullScreen(nil)
+    }
+
+    func present() {
+        showWindow(nil)
+
+        guard launchesFullscreen, isFullscreen == false else {
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isFullscreen == false else {
+                return
+            }
+
+            self.window?.toggleFullScreen(nil)
+        }
     }
 
     func releaseAllRemoteInputs() {

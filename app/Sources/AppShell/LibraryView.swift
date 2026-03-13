@@ -3,15 +3,13 @@ import SwiftUI
 struct LibraryView: View {
     @ObservedObject var model: MainWindowModel
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 170, maximum: 210), spacing: 16, alignment: .top)
-    ]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Library")
-                .font(.largeTitle)
-                .foregroundStyle(.primary)
+            if let libraryActionError = model.libraryActionError {
+                Label(libraryActionError, systemImage: "exclamationmark.triangle")
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+            }
 
             if model.libraryLoading {
                 VStack(spacing: 12) {
@@ -48,14 +46,34 @@ struct LibraryView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 18) {
+                    LazyVStack(spacing: 14) {
                         ForEach(model.applications) { application in
-                            LibraryTileView(application: application, isDisabled: model.launchInProgress) {
-                                model.launch(application)
-                            }
+                            LibraryTileView(
+                                application: application,
+                                launchesFullscreen: model.launchesFullscreen(for: application.id),
+                                selectedResolution: model.windowedResolution(for: application.id),
+                                playDisabled: model.launchInProgress || model.stopInProgress,
+                                pauseDisabled: model.activeStreamApplicationID != application.id,
+                                stopDisabled: model.stopInProgress || model.launchInProgress,
+                                onPlay: {
+                                    model.launch(application)
+                                },
+                                onPause: {
+                                    model.pause(application)
+                                },
+                                onStop: {
+                                    model.stop(application)
+                                },
+                                onFullscreenChange: { launchesFullscreen in
+                                    model.setLaunchesFullscreen(launchesFullscreen, for: application.id)
+                                },
+                                onResolutionChange: { resolution in
+                                    model.setWindowedResolution(resolution, for: application.id)
+                                }
+                            )
                         }
                     }
-                    .padding(.bottom, 8)
+                    .padding(.vertical, 4)
                 }
                 .scrollIndicators(.never)
             }

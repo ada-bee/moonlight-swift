@@ -14,7 +14,11 @@ final class MainWindowModel: ObservableObject {
     @Published private(set) var libraryError: String?
     @Published private(set) var applications: [HostApplication] = []
     @Published private(set) var launchInProgress = false
+    @Published private(set) var stopInProgress = false
+    @Published private(set) var libraryActionError: String?
     @Published private(set) var shouldRefreshLibrary = false
+    @Published private(set) var gameLaunchPreferences: [Int: AppGameLaunchPreferences] = [:]
+    @Published private(set) var activeStreamApplicationID: Int?
 
     let coordinator: AppCoordinator
 
@@ -37,6 +41,30 @@ final class MainWindowModel: ObservableObject {
         coordinator.launch(app: application)
     }
 
+    func pause(_ application: HostApplication) {
+        coordinator.pauseStream(application)
+    }
+
+    func stop(_ application: HostApplication) {
+        coordinator.stopRunningApplication(application)
+    }
+
+    func launchesFullscreen(for applicationID: Int) -> Bool {
+        launchPreferences(for: applicationID).launchesFullscreen
+    }
+
+    func windowedResolution(for applicationID: Int) -> MVPConfiguration.Video.Resolution {
+        launchPreferences(for: applicationID).windowedResolution
+    }
+
+    func setLaunchesFullscreen(_ launchesFullscreen: Bool, for applicationID: Int) {
+        coordinator.setLaunchesFullscreen(launchesFullscreen, for: applicationID)
+    }
+
+    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
+        coordinator.setWindowedResolution(resolution, for: applicationID)
+    }
+
     private func bindCoordinator() {
         coordinator.$settings
             .receive(on: DispatchQueue.main)
@@ -50,6 +78,14 @@ final class MainWindowModel: ObservableObject {
                 } else if self.hostInput.isEmpty {
                     self.hostInput = ""
                 }
+
+                var mappedPreferences: [Int: AppGameLaunchPreferences] = [:]
+                for (applicationID, preferences) in settings.perGameLaunchPreferences {
+                    if let numericID = Int(applicationID) {
+                        mappedPreferences[numericID] = preferences
+                    }
+                }
+                self.gameLaunchPreferences = mappedPreferences
             }
             .store(in: &cancellables)
 
@@ -119,8 +155,27 @@ final class MainWindowModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$launchInProgress)
 
+        coordinator.$stopInProgress
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$stopInProgress)
+
+        coordinator.$libraryActionError
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$libraryActionError)
+
         coordinator.$isLibraryStale
             .receive(on: DispatchQueue.main)
             .assign(to: &$shouldRefreshLibrary)
+
+        coordinator.$activeSessionController
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sessionController in
+                self?.activeStreamApplicationID = sessionController?.configuration.host.appID
+            }
+            .store(in: &cancellables)
+    }
+
+    private func launchPreferences(for applicationID: Int) -> AppGameLaunchPreferences {
+        gameLaunchPreferences[applicationID] ?? coordinator.settings.launchPreferences(for: applicationID)
     }
 }

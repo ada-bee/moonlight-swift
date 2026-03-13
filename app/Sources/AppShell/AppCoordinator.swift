@@ -26,6 +26,8 @@ final class AppCoordinator: ObservableObject {
     @Published private(set) var activeStreamWindowController: StreamWindowController?
     @Published private(set) var activeErrorWindowController: ErrorWindowController?
     @Published private(set) var launchInProgress = false
+    @Published private(set) var stopInProgress = false
+    @Published private(set) var libraryActionError: String?
     @Published private(set) var isLibraryStale = false
 
     private let appSupportPaths: AppSupportPaths
@@ -36,6 +38,17 @@ final class AppCoordinator: ObservableObject {
     private let posterImageLoader: PosterImageLoader
     private var sessionObservers: Set<AnyCancellable> = []
     private var hasLoadedStartupState = false
+    private var isLibraryPollingActive = false
+    private var libraryPollingTask: Task<Void, Never>?
+    private var libraryRefreshTask: Task<Void, Never>?
+    private var queuedLibraryRefreshForce = false
+    private var queuedLibraryRefreshShowsLoading = false
+    private var pollsSinceLastBackgroundRefresh = 0
+
+    private enum LibraryPollingDefaults {
+        static let intervalNanoseconds: UInt64 = 3_000_000_000
+        static let pollsPerApplicationRefresh = 10
+    }
 
     init(
         appSupportPaths: AppSupportPaths = AppSupportPaths(),
@@ -66,6 +79,7 @@ final class AppCoordinator: ObservableObject {
             try consumePendingPairingResetIfNeeded()
             try reloadPairedHostState()
             refreshLibrary()
+            restartLibraryPollingIfNeeded()
         } catch {
             pairingState = .failed(error.localizedDescription)
             libraryState = .idle
@@ -107,6 +121,7 @@ final class AppCoordinator: ObservableObject {
                         try self.settingsStore.save(self.settings)
                         self.pairingState = .idle
                         self.refreshLibrary(force: true)
+                        self.restartLibraryPollingIfNeeded()
                     }
                 } catch {
                     await MainActor.run {
@@ -120,16 +135,32 @@ final class AppCoordinator: ObservableObject {
     }
 
     func refreshLibrary() {
-        refreshLibrary(force: false)
+        refreshLibrary(force: false, showLoadingIndicator: true)
     }
 
     func refreshLibrary(force: Bool) {
-        guard pairedHost != nil else {
-            libraryState = .idle
+        refreshLibrary(force: force, showLoadingIndicator: true)
+    }
+
+    func setLibraryPollingActive(_ isActive: Bool) {
+        isLibraryPollingActive = isActive
+
+        if isActive {
+            restartLibraryPollingIfNeeded()
+        } else {
+            stopLibraryPolling()
+        }
+    }
+
+    func stopRunningApplication(_ application: HostApplication) {
+        let shouldStopCurrentApplication = application.isRunning
+            || runningApplicationID == application.id
+            || activeSessionController?.configuration.host.appID == application.id
+        guard shouldStopCurrentApplication, !stopInProgress, !launchInProgress else {
             return
         }
 
-        libraryState = .loading
+        libraryActionError = nil
 
         Task { [weak self] in
             guard let self else {
@@ -137,17 +168,65 @@ final class AppCoordinator: ObservableObject {
             }
 
             do {
+                if self.activeSessionController?.configuration.host.appID == application.id {
+                    await self.teardownActiveSession(closeErrorWindow: true)
+                }
+
+                try await self.stopHostApplication()
+
+                await MainActor.run {
+                    self.isLibraryStale = true
+                    self.libraryActionError = nil
+                    self.pollsSinceLastBackgroundRefresh = LibraryPollingDefaults.pollsPerApplicationRefresh
+                }
+            } catch {
+                await MainActor.run {
+                    self.libraryActionError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func pauseStream(_ application: HostApplication) {
+        guard activeSessionController?.configuration.host.appID == application.id else {
+            return
+        }
+
+        libraryActionError = nil
+
+        Task { [weak self] in
+            await self?.teardownActiveSession(closeErrorWindow: true)
+        }
+    }
+
+    private func refreshLibrary(force: Bool, showLoadingIndicator: Bool) {
+        guard pairedHost != nil else {
+            libraryState = .idle
+            return
+        }
+
+        if libraryRefreshTask != nil {
+            queuedLibraryRefreshForce = queuedLibraryRefreshForce || force
+            queuedLibraryRefreshShowsLoading = queuedLibraryRefreshShowsLoading || showLoadingIndicator
+            return
+        }
+
+        if showLoadingIndicator {
+            libraryState = .loading
+        }
+
+        libraryRefreshTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
                 guard let artifacts = try self.pairedHostStore.loadCurrentArtifacts() else {
-                    await MainActor.run {
-                        self.libraryState = .failed("No paired host credentials were found.")
-                    }
-                    return
+                    throw AppSettingsError.missingHost
                 }
 
                 var applications = try await self.libraryClient.fetchApplications(using: artifacts)
-                if force || self.isLibraryStale {
-                    self.isLibraryStale = false
-                }
+                let runningStatus = try await self.libraryClient.fetchRunningStatus(using: artifacts)
 
                 for index in applications.indices {
                     if let posterURL = await self.posterImageLoader.ensurePoster(for: applications[index], using: artifacts) {
@@ -156,44 +235,103 @@ final class AppCoordinator: ObservableObject {
                 }
 
                 await MainActor.run {
-                    self.libraryState = .loaded(applications)
+                    self.finishLibraryRefresh(
+                        result: .success((applications, runningStatus)),
+                        force: force,
+                        showLoadingIndicator: showLoadingIndicator
+                    )
                 }
             } catch {
                 await MainActor.run {
-                    self.libraryState = .failed(error.localizedDescription)
+                    self.finishLibraryRefresh(
+                        result: .failure(error),
+                        force: force,
+                        showLoadingIndicator: showLoadingIndicator
+                    )
                 }
             }
         }
     }
 
     func launch(app: HostApplication) {
-        guard !launchInProgress else {
-            return
-        }
-
-        let configuration: MVPConfiguration
-        do {
-            configuration = try settings.makeConfiguration(appID: app.id, autoConnectOnLaunch: false)
-        } catch {
-            pairingState = .failed(error.localizedDescription)
+        guard !launchInProgress, !stopInProgress else {
             return
         }
 
         launchInProgress = true
+        libraryActionError = nil
 
-        let sessionController = SessionController(configuration: configuration)
-        observe(sessionController)
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
 
-        let errorWindowController = ErrorWindowController(sessionController: sessionController)
-        let streamWindowController = StreamWindowController(sessionController: sessionController)
+            do {
+                let runningApplicationID = await MainActor.run { self.runningApplicationID }
 
-        activeSessionController = sessionController
-        activeErrorWindowController = errorWindowController
-        activeStreamWindowController = streamWindowController
+                if let activeSessionController = await MainActor.run(body: { self.activeSessionController }),
+                   activeSessionController.configuration.host.appID == app.id,
+                   await MainActor.run(body: { self.activeStreamWindowController != nil }),
+                   (activeSessionController.state == .connecting || activeSessionController.state == .streaming)
+                {
+                    await MainActor.run {
+                        self.activeStreamWindowController?.present()
+                        NSApp.activate(ignoringOtherApps: true)
+                        self.launchInProgress = false
+                    }
+                    return
+                }
 
-        streamWindowController.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        sessionController.connect()
+                if await MainActor.run(body: { self.activeSessionController != nil }) {
+                    await self.teardownActiveSession(closeErrorWindow: true)
+                }
+
+                if runningApplicationID != 0, runningApplicationID != app.id {
+                    try await self.stopHostApplication()
+                }
+
+                let preferences = await MainActor.run { self.settings.launchPreferences(for: app.id) }
+                let requestedResolution = await MainActor.run { self.launchResolution(for: preferences) }
+                let requestResume = runningApplicationID == app.id
+                let configuration = try await MainActor.run {
+                    try self.settings.makeConfiguration(
+                        appID: app.id,
+                        autoConnectOnLaunch: false,
+                        requestResume: requestResume,
+                        resolution: requestedResolution
+                    )
+                }
+
+                await MainActor.run {
+                    self.startSession(configuration: configuration, launchesFullscreen: preferences.launchesFullscreen)
+                }
+            } catch {
+                await MainActor.run {
+                    self.launchInProgress = false
+                    self.libraryActionError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func setLaunchesFullscreen(_ launchesFullscreen: Bool, for applicationID: Int) {
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.launchesFullscreen != launchesFullscreen else {
+            return
+        }
+
+        preferences.launchesFullscreen = launchesFullscreen
+        updateLaunchPreferences(preferences, for: applicationID)
+    }
+
+    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.windowedResolution != resolution else {
+            return
+        }
+
+        preferences.windowedResolution = resolution
+        updateLaunchPreferences(preferences, for: applicationID)
     }
 
     func markPairingResetOnNextLaunch() {
@@ -221,11 +359,16 @@ final class AppCoordinator: ObservableObject {
         pairedHost = nil
         pairingState = .idle
         libraryState = .idle
+        stopInProgress = false
+        libraryActionError = nil
         isLibraryStale = false
+        stopLibraryPolling()
     }
 
     func stopActiveSession() {
-        activeSessionController?.stop()
+        Task { [weak self] in
+            await self?.teardownActiveSession(closeErrorWindow: true)
+        }
     }
 
     private func reloadPairedHostState() throws {
@@ -260,12 +403,252 @@ final class AppCoordinator: ObservableObject {
                     break
                 case .streaming, .failed:
                     self.launchInProgress = false
+                    if state == .failed {
+                        self.activeSessionController = nil
+                        self.activeStreamWindowController?.close()
+                        self.activeStreamWindowController = nil
+                    }
                 case .stopped:
                     self.launchInProgress = false
                     self.isLibraryStale = true
+                    self.activeSessionController = nil
+                    self.activeStreamWindowController?.close()
+                    self.activeStreamWindowController = nil
                 }
             }
             .store(in: &sessionObservers)
+    }
+
+    private func finishLibraryRefresh(
+        result: Result<([HostApplication], HostRunningStatus), Error>,
+        force: Bool,
+        showLoadingIndicator: Bool
+    ) {
+        libraryRefreshTask = nil
+
+        switch result {
+        case let .success((applications, runningStatus)):
+            if force || isLibraryStale {
+                isLibraryStale = false
+            }
+
+            if stopInProgress, runningStatus.currentApplicationID == 0 {
+                stopInProgress = false
+                libraryActionError = nil
+            }
+
+            libraryState = .loaded(applicationsMarkingRunning(applications, runningApplicationID: runningStatus.currentApplicationID))
+        case let .failure(error):
+            if showLoadingIndicator || !hasLoadedApplications {
+                libraryState = .failed(error.localizedDescription)
+            }
+        }
+
+        if queuedLibraryRefreshForce || queuedLibraryRefreshShowsLoading {
+            let nextForce = queuedLibraryRefreshForce
+            let nextShowLoading = queuedLibraryRefreshShowsLoading
+            queuedLibraryRefreshForce = false
+            queuedLibraryRefreshShowsLoading = false
+            refreshLibrary(force: nextForce, showLoadingIndicator: nextShowLoading)
+        }
+    }
+
+    private var hasLoadedApplications: Bool {
+        if case .loaded = libraryState {
+            return true
+        }
+
+        return false
+    }
+
+    private func applicationsMarkingRunning(_ applications: [HostApplication], runningApplicationID: Int) -> [HostApplication] {
+        applications.map { application in
+            var updated = application
+            updated.isRunning = updated.id == runningApplicationID
+            return updated
+        }
+    }
+
+    private func applyRunningStatus(_ runningStatus: HostRunningStatus) {
+        if stopInProgress, runningStatus.currentApplicationID == 0 {
+            stopInProgress = false
+            libraryActionError = nil
+        }
+
+        guard case let .loaded(applications) = libraryState else {
+            return
+        }
+
+        let updatedApplications = applicationsMarkingRunning(applications, runningApplicationID: runningStatus.currentApplicationID)
+        if updatedApplications != applications {
+            libraryState = .loaded(updatedApplications)
+        }
+    }
+
+    private func restartLibraryPollingIfNeeded() {
+        guard isLibraryPollingActive, pairedHost != nil, libraryPollingTask == nil else {
+            return
+        }
+
+        libraryPollingTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            while !Task.isCancelled {
+                await self.pollRunningStatus()
+                if Task.isCancelled {
+                    break
+                }
+
+                self.pollsSinceLastBackgroundRefresh += 1
+                if self.isLibraryStale || self.pollsSinceLastBackgroundRefresh >= LibraryPollingDefaults.pollsPerApplicationRefresh {
+                    self.pollsSinceLastBackgroundRefresh = 0
+                    self.refreshLibrary(force: true, showLoadingIndicator: false)
+                }
+
+                do {
+                    try await Task.sleep(nanoseconds: LibraryPollingDefaults.intervalNanoseconds)
+                } catch {
+                    break
+                }
+            }
+
+            await MainActor.run {
+                self.libraryPollingTask = nil
+            }
+        }
+    }
+
+    private func stopLibraryPolling() {
+        libraryPollingTask?.cancel()
+        libraryPollingTask = nil
+        pollsSinceLastBackgroundRefresh = 0
+    }
+
+    private func pollRunningStatus() async {
+        guard pairedHost != nil else {
+            return
+        }
+
+        do {
+            guard let artifacts = try pairedHostStore.loadCurrentArtifacts() else {
+                return
+            }
+
+            let runningStatus = try await libraryClient.fetchRunningStatus(using: artifacts)
+            await MainActor.run {
+                self.applyRunningStatus(runningStatus)
+            }
+        } catch {
+        }
+    }
+
+    private var runningApplicationID: Int {
+        guard case let .loaded(applications) = libraryState else {
+            return 0
+        }
+
+        return applications.first(where: { $0.isRunning })?.id ?? 0
+    }
+
+    private func launchResolution(for preferences: AppGameLaunchPreferences) -> MVPConfiguration.Video.Resolution {
+        if preferences.launchesFullscreen,
+           let mainScreen = NSScreen.main
+        {
+            let frame = mainScreen.frame
+            let scale = max(mainScreen.backingScaleFactor, 1.0)
+            return MVPConfiguration.Video.Resolution(
+                width: Int(frame.width * scale),
+                height: Int(frame.height * scale)
+            )
+        }
+
+        return preferences.windowedResolution
+    }
+
+    private func updateLaunchPreferences(_ preferences: AppGameLaunchPreferences, for applicationID: Int) {
+        settings.setLaunchPreferences(preferences, for: applicationID)
+
+        do {
+            try settingsStore.save(settings)
+            libraryActionError = nil
+        } catch {
+            libraryActionError = error.localizedDescription
+        }
+    }
+
+    private func startSession(configuration: MVPConfiguration, launchesFullscreen: Bool) {
+        launchInProgress = true
+
+        activeErrorWindowController?.close()
+        activeStreamWindowController?.close()
+
+        let sessionController = SessionController(configuration: configuration)
+        observe(sessionController)
+
+        let errorWindowController = ErrorWindowController(sessionController: sessionController)
+        let streamWindowController = StreamWindowController(
+            sessionController: sessionController,
+            launchesFullscreen: launchesFullscreen
+        )
+
+        activeSessionController = sessionController
+        activeErrorWindowController = errorWindowController
+        activeStreamWindowController = streamWindowController
+
+        streamWindowController.present()
+        NSApp.activate(ignoringOtherApps: true)
+        sessionController.connect()
+    }
+
+    private func stopHostApplication() async throws {
+        guard !stopInProgress else {
+            return
+        }
+
+        stopInProgress = true
+        defer { stopInProgress = false }
+
+        guard let artifacts = try pairedHostStore.loadCurrentArtifacts() else {
+            throw AppSettingsError.missingHost
+        }
+
+        try await libraryClient.stopRunningApplication(using: artifacts)
+        await MainActor.run {
+            self.applyRunningStatus(HostRunningStatus(currentApplicationID: 0))
+            self.isLibraryStale = true
+        }
+    }
+
+    private func teardownActiveSession(closeErrorWindow: Bool) async {
+        let sessionController = activeSessionController
+        let streamWindowController = activeStreamWindowController
+        let errorWindowController = activeErrorWindowController
+
+        activeSessionController = nil
+        activeStreamWindowController = nil
+        if closeErrorWindow {
+            activeErrorWindowController = nil
+        }
+        sessionObservers.removeAll()
+
+        streamWindowController?.close()
+        if closeErrorWindow {
+            errorWindowController?.close()
+        }
+
+        guard let sessionController else {
+            return
+        }
+
+        libraryActionError = nil
+
+        await withCheckedContinuation { continuation in
+            sessionController.stopAndWait {
+                continuation.resume()
+            }
+        }
     }
 
     private static func randomPIN() -> String {

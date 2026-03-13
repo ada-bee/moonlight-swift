@@ -32,23 +32,27 @@ public struct MVPConfiguration: Sendable, Codable {
 
     public struct Session: Sendable, Codable {
         public var autoConnectOnLaunch: Bool
+        public var requestResume: Bool
 
-        public init(autoConnectOnLaunch: Bool) {
+        public init(autoConnectOnLaunch: Bool, requestResume: Bool = false) {
             self.autoConnectOnLaunch = autoConnectOnLaunch
+            self.requestResume = requestResume
         }
 
         private enum CodingKeys: String, CodingKey {
             case autoConnectOnLaunch
+            case requestResume
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             autoConnectOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .autoConnectOnLaunch) ?? true
+            requestResume = try container.decodeIfPresent(Bool.self, forKey: .requestResume) ?? false
         }
     }
 
     public struct Video: Sendable, Codable {
-        public struct Resolution: Sendable, Codable {
+        public struct Resolution: Sendable, Codable, Hashable {
             public var width: Int
             public var height: Int
 
@@ -129,7 +133,7 @@ public extension MVPConfiguration {
             port: 47989,
             appID: 881448767
         ),
-        session: .init(autoConnectOnLaunch: true),
+        session: .init(autoConnectOnLaunch: true, requestResume: false),
         video: .init(
             resolution: .init(width: 2560, height: 1440),
             fps: 120,

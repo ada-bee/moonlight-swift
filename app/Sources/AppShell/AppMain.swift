@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct AppMain: App {
+    @Environment(\.scenePhase) private var scenePhase
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var coordinator: AppCoordinator
     @StateObject private var mainWindowModel: MainWindowModel
@@ -16,13 +17,17 @@ struct AppMain: App {
     var body: some Scene {
         WindowGroup {
             MainWindowView(model: mainWindowModel)
-                .frame(minWidth: 760, minHeight: 560)
+                .frame(minWidth: 960, minHeight: 560)
                 .task {
                     appDelegate.coordinator = coordinator
                     coordinator.loadStartupState()
+                    coordinator.setLibraryPollingActive(scenePhase == .active)
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    coordinator.setLibraryPollingActive(newPhase == .active)
                 }
         }
-        .defaultSize(width: 980, height: 680)
+        .defaultSize(width: 1180, height: 720)
 
         Settings {
             SettingsView(coordinator: coordinator)

@@ -56,7 +56,9 @@ public final class HostSessionBootstrapper {
 
     public func bootstrap() async throws -> BootstrappedServerInfo {
         let serverInfoFields = try await fetchServerInfoFields()
-        let rtspURL = try await requestSessionRTSPURL(endpoint: "/launch", verb: "launch")
+        let endpoint = configuration.session.requestResume ? "/resume" : "/launch"
+        let verb = configuration.session.requestResume ? "resume" : "launch"
+        let rtspURL = try await requestSessionRTSPURL(endpoint: endpoint, verb: verb)
 
         let appVersion = serverInfoFields["appversion"] ?? HostSessionBootstrapDefaults.appVersion
         let gfeVersion = serverInfoFields["GfeVersion"] ?? HostSessionBootstrapDefaults.gfeVersion
