@@ -31,6 +31,7 @@ public final class MoonlightBridge {
 
     private let configuration: MVPConfiguration
     fileprivate let renderer: VideoFrameRenderer
+    private let audioRenderer = OpusAudioRenderer()
 
     private var connectionCallbacks = CONNECTION_LISTENER_CALLBACKS()
     private var videoCallbacks = DECODER_RENDERER_CALLBACKS()
@@ -45,11 +46,14 @@ public final class MoonlightBridge {
     public init(configuration: MVPConfiguration, renderer: VideoFrameRenderer) {
         self.configuration = configuration
         self.renderer = renderer
+        self.audioRenderer.onError = { message in
+            print("Moonlight audio renderer error: \(message)")
+        }
 
         MoonlightBridgeSetActiveContext(bridgeContextPointer)
         MoonlightBridgeInstallCallbacks(&connectionCallbacks, &videoCallbacks, &audioCallbacks)
         videoCallbacks.capabilities = Int32(CAPABILITY_DIRECT_SUBMIT)
-        audioCallbacks.capabilities = Int32(CAPABILITY_SLOW_OPUS_DECODER)
+        audioCallbacks.capabilities = 0
     }
 
     public func start() async throws {
@@ -268,6 +272,30 @@ public final class MoonlightBridge {
             }
         }
     }
+
+    fileprivate func initializeAudio(
+        audioConfiguration: Int32,
+        opusConfig: UnsafePointer<OPUS_MULTISTREAM_CONFIGURATION>?,
+        arFlags: Int32
+    ) -> Int32 {
+        audioRenderer.configure(audioConfiguration: audioConfiguration, opusConfig: opusConfig, arFlags: arFlags)
+    }
+
+    fileprivate func startAudio() {
+        audioRenderer.start()
+    }
+
+    fileprivate func stopAudio() {
+        audioRenderer.stop()
+    }
+
+    fileprivate func cleanupAudio() {
+        audioRenderer.cleanup()
+    }
+
+    fileprivate func decodeAndPlayAudioSample(_ sampleData: UnsafeMutablePointer<CChar>?, sampleLength: Int32) {
+        audioRenderer.decodeAndPlaySample(sampleData, sampleLength: sampleLength)
+    }
 }
 
 extension MoonlightBridge: @unchecked Sendable {}
@@ -431,31 +459,38 @@ func MoonlightSwiftAudioInit(
 ) -> Int32 {
     guard let context else { return 0 }
     StreamingPriority.promoteCurrentThreadForConnectionCallbacks()
-    _ = Unmanaged<MoonlightBridge>.fromOpaque(context).takeUnretainedValue()
-    _ = audioConfiguration
-    _ = opusConfig
-    _ = arFlags
-    return 0
+    let bridge = Unmanaged<MoonlightBridge>.fromOpaque(context).takeUnretainedValue()
+    return bridge.initializeAudio(audioConfiguration: audioConfiguration, opusConfig: opusConfig, arFlags: arFlags)
 }
 
 @_cdecl("MoonlightSwiftAudioStart")
 func MoonlightSwiftAudioStart(_ context: UnsafeMutableRawPointer?) {
-    _ = context
+    guard let context else { return }
+    StreamingPriority.promoteCurrentThreadForAudioCallbacks()
+    let bridge = Unmanaged<MoonlightBridge>.fromOpaque(context).takeUnretainedValue()
+    bridge.startAudio()
 }
 
 @_cdecl("MoonlightSwiftAudioStop")
 func MoonlightSwiftAudioStop(_ context: UnsafeMutableRawPointer?) {
-    _ = context
+    guard let context else { return }
+    StreamingPriority.promoteCurrentThreadForAudioCallbacks()
+    let bridge = Unmanaged<MoonlightBridge>.fromOpaque(context).takeUnretainedValue()
+    bridge.stopAudio()
 }
 
 @_cdecl("MoonlightSwiftAudioCleanup")
 func MoonlightSwiftAudioCleanup(_ context: UnsafeMutableRawPointer?) {
-    _ = context
+    guard let context else { return }
+    StreamingPriority.promoteCurrentThreadForAudioCallbacks()
+    let bridge = Unmanaged<MoonlightBridge>.fromOpaque(context).takeUnretainedValue()
+    bridge.cleanupAudio()
 }
 
 @_cdecl("MoonlightSwiftAudioDecodeAndPlaySample")
 func MoonlightSwiftAudioDecodeAndPlaySample(_ context: UnsafeMutableRawPointer?, _ sampleData: UnsafeMutablePointer<CChar>?, _ sampleLength: Int32) {
-    _ = context
-    _ = sampleData
-    _ = sampleLength
+    guard let context else { return }
+    StreamingPriority.promoteCurrentThreadForAudioCallbacks()
+    let bridge = Unmanaged<MoonlightBridge>.fromOpaque(context).takeUnretainedValue()
+    bridge.decodeAndPlayAudioSample(sampleData, sampleLength: sampleLength)
 }
