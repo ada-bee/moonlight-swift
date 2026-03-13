@@ -267,7 +267,7 @@ final class AppCoordinator: ObservableObject {
             }
 
             do {
-                let runningApplicationID = await MainActor.run { self.runningApplicationID }
+                let runningApplicationID = await self.currentRunningApplicationIDForLaunch()
 
                 if let activeSessionController = await MainActor.run(body: { self.activeSessionController }),
                    activeSessionController.configuration.host.appID == app.id,
@@ -541,6 +541,22 @@ final class AppCoordinator: ObservableObject {
                 self.applyRunningStatus(runningStatus)
             }
         } catch {
+        }
+    }
+
+    private func currentRunningApplicationIDForLaunch() async -> Int {
+        let cachedRunningApplicationID = runningApplicationID
+
+        guard let artifacts = try? pairedHostStore.loadCurrentArtifacts() else {
+            return cachedRunningApplicationID
+        }
+
+        do {
+            let runningStatus = try await libraryClient.fetchRunningStatus(using: artifacts)
+            applyRunningStatus(runningStatus)
+            return runningStatus.currentApplicationID
+        } catch {
+            return cachedRunningApplicationID
         }
     }
 
