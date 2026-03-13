@@ -8,8 +8,7 @@ final class StreamWindowController: NSWindowController {
         self.sessionController = sessionController
         let viewController = StreamViewController(sessionController: sessionController)
         let window = NSWindow(contentViewController: viewController)
-        let resolution = sessionController.configuration.video.resolution
-        let contentSize = NSSize(width: resolution.width, height: resolution.height)
+        let contentSize = Self.streamContentSize(for: sessionController, screen: NSScreen.main)
         window.setContentSize(contentSize)
         window.contentMinSize = contentSize
         window.contentMaxSize = contentSize
@@ -27,5 +26,25 @@ final class StreamWindowController: NSWindowController {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    func resetToStreamResolution() {
+        guard let window else {
+            return
+        }
+
+        let contentSize = Self.streamContentSize(for: sessionController, screen: window.screen)
+        window.setContentSize(contentSize)
+        window.contentMinSize = contentSize
+        window.contentMaxSize = contentSize
+    }
+
+    private static func streamContentSize(for sessionController: SessionController, screen: NSScreen?) -> NSSize {
+        let resolution = sessionController.configuration.video.resolution
+        let backingScaleFactor = max(screen?.backingScaleFactor ?? 1.0, 1.0)
+        return NSSize(
+            width: CGFloat(resolution.width) / backingScaleFactor,
+            height: CGFloat(resolution.height) / backingScaleFactor
+        )
     }
 }
