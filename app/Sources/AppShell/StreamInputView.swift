@@ -391,7 +391,7 @@ private extension StreamInputView {
 
     func shouldForwardInput(for event: NSEvent) -> Bool {
         _ = event
-        guard NSApp.isActive, let window, window.isVisible else {
+        guard NSApp.isActive, let window, window.isVisible, window.isKeyWindow else {
             return false
         }
 
@@ -538,7 +538,7 @@ private extension StreamInputView {
             return
         }
 
-        let shouldHideCursor = mouseInsideVideoRegion && !suppressRemoteInputForLocalCommand
+        let shouldHideCursor = window?.isKeyWindow == true && mouseInsideVideoRegion && !suppressRemoteInputForLocalCommand
         setLocalCursorHidden(shouldHideCursor)
     }
 
