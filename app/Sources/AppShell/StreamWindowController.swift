@@ -100,6 +100,10 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
         streamViewController.releaseAllRemoteInputs()
     }
 
+    func resetLocalInputState() {
+        streamViewController.resetLocalInputState()
+    }
+
     func windowDidBecomeKey(_ notification: Notification) {
         _ = notification
         window?.makeFirstResponder(streamViewController.view)

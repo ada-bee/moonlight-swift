@@ -55,6 +55,10 @@ final class StreamViewController: NSViewController {
         inputView.releaseAllRemoteInputs()
     }
 
+    func resetLocalInputState() {
+        inputView.resetLocalInputState()
+    }
+
     func handleWindowDidResignKey() {
         inputView.handleWindowDidResignKey()
     }

@@ -9,6 +9,16 @@ final class StreamInputView: NSView {
         case raw
     }
 
+    private struct PressedKeyState {
+        let virtualKey: UInt16
+        let flags: SessionController.KeyboardFlags
+
+        init(mapping: WindowsVirtualKeyMap.Mapping) {
+            self.virtualKey = mapping.virtualKey
+            self.flags = mapping.flags
+        }
+    }
+
     private let sessionController: SessionController
     private let streamResolution: CGSize
 
@@ -19,9 +29,12 @@ final class StreamInputView: NSView {
     private var continueAbsoluteDragOutsideVideoRegion = false
     private var mouseCaptureActive = false
     private var localCursorHiddenByView = false
-    private var pressedMouseButtons: Set<SessionController.MouseButton> = []
-    private var pressedKeys: [UInt16: SessionController.KeyboardFlags] = [:]
-    private var pressedModifierKeys: Set<UInt16> = []
+    private var physicallyPressedMouseButtons: Set<SessionController.MouseButton> = []
+    private var remotelyPressedMouseButtons: Set<SessionController.MouseButton> = []
+    private var physicallyPressedKeys: [UInt16: PressedKeyState] = [:]
+    private var remotelyPressedKeys: [UInt16: PressedKeyState] = [:]
+    private var physicallyPressedModifierKeys: [UInt16: UInt16] = [:]
+    private var remotelyPressedModifierKeys: [UInt16: UInt16] = [:]
 
     var onLocalCommandSuppressionChanged: ((Bool) -> Void)?
 
@@ -136,28 +149,17 @@ final class StreamInputView: NSView {
     }
 
     func releaseAllRemoteInputs() {
-        for button in pressedMouseButtons {
-            sessionController.sendMouseButton(button, action: .release)
-        }
-        pressedMouseButtons.removeAll()
+        releaseRemoteInputsOnly()
+        clearLocalBookkeepingOnly()
+    }
 
-        for (virtualKey, flags) in pressedKeys {
-            sessionController.sendKeyboard(virtualKey: virtualKey, action: .up, flags: flags)
-        }
-        pressedKeys.removeAll()
-
-        for virtualKey in pressedModifierKeys {
-            sessionController.sendKeyboard(virtualKey: virtualKey, action: .up)
-        }
-        pressedModifierKeys.removeAll()
-
-        continueAbsoluteDragOutsideVideoRegion = false
-        updateLocalCursorVisibility()
+    func resetLocalInputState() {
+        clearLocalBookkeepingOnly()
+        mouseInsideVideoRegion = false
+        setLocalCursorHidden(false)
     }
 
     func handleWindowDidResignKey() {
-        commandKeyActive = false
-        setSuppressRemoteInputForLocalCommand(false)
         releaseAllRemoteInputs()
         mouseInsideVideoRegion = false
         setLocalCursorHidden(false)
@@ -177,7 +179,7 @@ final class StreamInputView: NSView {
         super.mouseExited(with: event)
         _ = event
         mouseInsideVideoRegion = false
-        if pressedMouseButtons.isEmpty {
+        if physicallyPressedMouseButtons.isEmpty {
             continueAbsoluteDragOutsideVideoRegion = false
         }
         updateLocalCursorVisibility()
@@ -261,7 +263,20 @@ final class StreamInputView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard shouldForwardKeyboard(event) else {
+        let shouldForward = shouldForwardKeyboard(event)
+
+        guard let mapping = WindowsVirtualKeyMap.map(keyCode: event.keyCode) else {
+            if !shouldForward {
+                super.keyDown(with: event)
+            }
+            return
+        }
+
+        if !event.isARepeat {
+            physicallyPressedKeys[event.keyCode] = PressedKeyState(mapping: mapping)
+        }
+
+        guard shouldForward else {
             super.keyDown(with: event)
             return
         }
@@ -270,36 +285,43 @@ final class StreamInputView: NSView {
             return
         }
 
-        guard let mapping = WindowsVirtualKeyMap.map(keyCode: event.keyCode) else {
+        let state = PressedKeyState(mapping: mapping)
+        guard remotelyPressedKeys[event.keyCode] == nil else {
             return
         }
 
         sessionController.sendKeyboard(
-            virtualKey: mapping.virtualKey,
+            virtualKey: state.virtualKey,
             action: .down,
             modifiers: keyboardModifiers(from: event.modifierFlags),
-            flags: mapping.flags
+            flags: state.flags
         )
-        pressedKeys[mapping.virtualKey] = mapping.flags
+        remotelyPressedKeys[event.keyCode] = state
     }
 
     override func keyUp(with event: NSEvent) {
-        guard shouldForwardKeyboard(event) else {
+        let shouldForward = shouldForwardKeyboard(event)
+        let state = physicallyPressedKeys.removeValue(forKey: event.keyCode) ?? WindowsVirtualKeyMap.map(keyCode: event.keyCode).map(PressedKeyState.init)
+
+        guard shouldForward else {
             super.keyUp(with: event)
             return
         }
 
-        guard let mapping = WindowsVirtualKeyMap.map(keyCode: event.keyCode) else {
+        guard let state else {
+            return
+        }
+
+        guard remotelyPressedKeys.removeValue(forKey: event.keyCode) != nil else {
             return
         }
 
         sessionController.sendKeyboard(
-            virtualKey: mapping.virtualKey,
+            virtualKey: state.virtualKey,
             action: .up,
             modifiers: keyboardModifiers(from: event.modifierFlags),
-            flags: mapping.flags
+            flags: state.flags
         )
-        pressedKeys.removeValue(forKey: mapping.virtualKey)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -308,20 +330,10 @@ final class StreamInputView: NSView {
         if event.keyCode == UInt16(kVK_Command) || event.keyCode == UInt16(kVK_RightCommand) {
             let commandDown = modifiers.contains(.command)
             if commandDown && !commandKeyActive {
-                commandKeyActive = true
-                setSuppressRemoteInputForLocalCommand(true)
-                releaseAllRemoteInputs()
-                setLocalCursorHidden(false)
+                beginLocalCommandSuppression()
             } else if !commandDown && commandKeyActive {
-                commandKeyActive = false
-                setSuppressRemoteInputForLocalCommand(false)
-                synchronizeModifierState(with: modifiers)
-                updateLocalCursorVisibility()
+                endLocalCommandSuppression(with: modifiers)
             }
-            return
-        }
-
-        guard !suppressRemoteInputForLocalCommand else {
             return
         }
 
@@ -331,21 +343,30 @@ final class StreamInputView: NSView {
 
         let isDown = modifierKeyIsDown(for: event.keyCode, modifiers: modifiers)
         if isDown {
-            if !pressedModifierKeys.contains(mapping.virtualKey) {
+            physicallyPressedModifierKeys[event.keyCode] = mapping.virtualKey
+        } else {
+            physicallyPressedModifierKeys.removeValue(forKey: event.keyCode)
+        }
+
+        guard !suppressRemoteInputForLocalCommand else {
+            return
+        }
+
+        if isDown {
+            if remotelyPressedModifierKeys[event.keyCode] == nil {
                 sessionController.sendKeyboard(
                     virtualKey: mapping.virtualKey,
                     action: .down,
                     modifiers: keyboardModifiers(from: modifiers)
                 )
-                pressedModifierKeys.insert(mapping.virtualKey)
+                remotelyPressedModifierKeys[event.keyCode] = mapping.virtualKey
             }
-        } else if pressedModifierKeys.contains(mapping.virtualKey) {
+        } else if let virtualKey = remotelyPressedModifierKeys.removeValue(forKey: event.keyCode) {
             sessionController.sendKeyboard(
-                virtualKey: mapping.virtualKey,
+                virtualKey: virtualKey,
                 action: .up,
                 modifiers: keyboardModifiers(from: modifiers)
             )
-            pressedModifierKeys.remove(mapping.virtualKey)
         }
     }
 }
@@ -358,6 +379,84 @@ private extension StreamInputView {
 
         suppressRemoteInputForLocalCommand = isSuppressed
         onLocalCommandSuppressionChanged?(isSuppressed)
+    }
+
+    func beginLocalCommandSuppression() {
+        commandKeyActive = true
+        setSuppressRemoteInputForLocalCommand(true)
+        releaseRemoteInputsOnly()
+        setLocalCursorHidden(false)
+    }
+
+    func endLocalCommandSuppression(with modifiers: NSEvent.ModifierFlags) {
+        commandKeyActive = false
+        setSuppressRemoteInputForLocalCommand(false)
+        synchronizeModifierState(with: modifiers)
+        resynchronizeCurrentlyHeldInputs(with: modifiers)
+        updateLocalCursorVisibility()
+    }
+
+    func releaseRemoteInputsOnly() {
+        for button in remotelyPressedMouseButtons {
+            sessionController.sendMouseButton(button, action: .release)
+        }
+        remotelyPressedMouseButtons.removeAll()
+
+        for state in remotelyPressedKeys.values {
+            sessionController.sendKeyboard(virtualKey: state.virtualKey, action: .up, flags: state.flags)
+        }
+        remotelyPressedKeys.removeAll()
+
+        for virtualKey in remotelyPressedModifierKeys.values {
+            sessionController.sendKeyboard(virtualKey: virtualKey, action: .up)
+        }
+        remotelyPressedModifierKeys.removeAll()
+
+        updateLocalCursorVisibility()
+    }
+
+    func clearLocalBookkeepingOnly() {
+        commandKeyActive = false
+        setSuppressRemoteInputForLocalCommand(false)
+        physicallyPressedMouseButtons.removeAll()
+        remotelyPressedMouseButtons.removeAll()
+        physicallyPressedKeys.removeAll()
+        remotelyPressedKeys.removeAll()
+        physicallyPressedModifierKeys.removeAll()
+        remotelyPressedModifierKeys.removeAll()
+        continueAbsoluteDragOutsideVideoRegion = false
+        updateLocalCursorVisibility()
+    }
+
+    func resynchronizeCurrentlyHeldInputs(with modifiers: NSEvent.ModifierFlags) {
+        let currentModifiers = keyboardModifiers(from: modifiers)
+
+        for keyCode in physicallyPressedKeys.keys.sorted() {
+            guard let state = physicallyPressedKeys[keyCode], remotelyPressedKeys[keyCode] == nil else {
+                continue
+            }
+
+            sessionController.sendKeyboard(
+                virtualKey: state.virtualKey,
+                action: .down,
+                modifiers: currentModifiers,
+                flags: state.flags
+            )
+            remotelyPressedKeys[keyCode] = state
+        }
+
+        guard !physicallyPressedMouseButtons.isEmpty else {
+            return
+        }
+
+        if mouseMode == .absolute {
+            forwardCurrentAbsoluteMousePosition(force: true)
+        }
+
+        for button in physicallyPressedMouseButtons.subtracting(remotelyPressedMouseButtons) {
+            sessionController.sendMouseButton(button, action: .press)
+            remotelyPressedMouseButtons.insert(button)
+        }
     }
 
     func handleMouseMotion(_ event: NSEvent) {
@@ -384,6 +483,13 @@ private extension StreamInputView {
 
     func handleMouseButton(_ event: NSEvent, button: SessionController.MouseButton, action: SessionController.MouseButtonAction) {
         guard shouldForwardInput(for: event) else {
+            if action == .release {
+                physicallyPressedMouseButtons.remove(button)
+                if mouseMode == .absolute && physicallyPressedMouseButtons.isEmpty {
+                    continueAbsoluteDragOutsideVideoRegion = false
+                }
+            }
+
             if suppressRemoteInputForLocalCommand, action == .press, button == .left {
                 window?.performDrag(with: event)
             }
@@ -401,19 +507,31 @@ private extension StreamInputView {
             return
         }
 
-        sessionController.sendMouseButton(button, action: action)
-
         switch action {
         case .press:
-            pressedMouseButtons.insert(button)
             if mouseMode == .absolute {
                 forwardAbsoluteMouseIfNeeded(locationInView: locationInView, force: true)
             }
+
+            physicallyPressedMouseButtons.insert(button)
+            guard !remotelyPressedMouseButtons.contains(button) else {
+                return
+            }
+
+            sessionController.sendMouseButton(button, action: .press)
+            remotelyPressedMouseButtons.insert(button)
         case .release:
-            pressedMouseButtons.remove(button)
-            if mouseMode == .absolute && pressedMouseButtons.isEmpty {
+            physicallyPressedMouseButtons.remove(button)
+            if mouseMode == .absolute && physicallyPressedMouseButtons.isEmpty {
                 continueAbsoluteDragOutsideVideoRegion = false
             }
+
+            guard remotelyPressedMouseButtons.contains(button) else {
+                return
+            }
+
+            sessionController.sendMouseButton(button, action: .release)
+            remotelyPressedMouseButtons.remove(button)
         }
     }
 
@@ -463,7 +581,7 @@ private extension StreamInputView {
             return
         }
 
-        if !isInside && !pressedMouseButtons.isEmpty {
+        if !isInside && !physicallyPressedMouseButtons.isEmpty {
             continueAbsoluteDragOutsideVideoRegion = true
         }
 
@@ -487,6 +605,15 @@ private extension StreamInputView {
 
         mouseInsideVideoRegion = isInside
         updateLocalCursorVisibility()
+    }
+
+    func forwardCurrentAbsoluteMousePosition(force: Bool) {
+        guard let window else {
+            return
+        }
+
+        let locationInView = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        forwardAbsoluteMouseIfNeeded(locationInView: locationInView, force: force)
     }
 
     func mouseButton(for buttonNumber: Int) -> SessionController.MouseButton? {
@@ -535,41 +662,40 @@ private extension StreamInputView {
     }
 
     func synchronizeModifierState(with modifiers: NSEvent.ModifierFlags) {
-        let desiredMappings: [(NSEvent.ModifierFlags, UInt16)] = [
-            (.shift, 0xA0),
-            (.control, 0xA2),
-            (.option, 0xA4),
-            (.capsLock, 0x14)
-        ]
+        let currentModifiers = keyboardModifiers(from: modifiers)
+        let desiredKeyCodes = physicallyPressedModifierKeys.keys.sorted()
 
-        for (flag, virtualKey) in desiredMappings {
-            let shouldBeDown = modifiers.contains(flag)
-            let isDown = pressedModifierKeys.contains(virtualKey)
-
-            if shouldBeDown && !isDown {
-                sessionController.sendKeyboard(
-                    virtualKey: virtualKey,
-                    action: .down,
-                    modifiers: keyboardModifiers(from: modifiers)
-                )
-                pressedModifierKeys.insert(virtualKey)
-            } else if !shouldBeDown && isDown {
-                sessionController.sendKeyboard(
-                    virtualKey: virtualKey,
-                    action: .up,
-                    modifiers: keyboardModifiers(from: modifiers)
-                )
-                pressedModifierKeys.remove(virtualKey)
+        for keyCode in desiredKeyCodes {
+            guard let virtualKey = physicallyPressedModifierKeys[keyCode], remotelyPressedModifierKeys[keyCode] == nil else {
+                continue
             }
+
+            sessionController.sendKeyboard(
+                virtualKey: virtualKey,
+                action: .down,
+                modifiers: currentModifiers
+            )
+            remotelyPressedModifierKeys[keyCode] = virtualKey
+        }
+
+        for keyCode in remotelyPressedModifierKeys.keys.sorted() where physicallyPressedModifierKeys[keyCode] == nil {
+            guard let virtualKey = remotelyPressedModifierKeys[keyCode] else {
+                continue
+            }
+
+            sessionController.sendKeyboard(
+                virtualKey: virtualKey,
+                action: .up,
+                modifiers: currentModifiers
+            )
+            remotelyPressedModifierKeys.removeValue(forKey: keyCode)
         }
     }
 
     func scrollAmount(for delta: CGFloat, precise: Bool) -> Int32 {
-        if precise {
-            return Int32((max(min(delta, 1), -1) * 120).rounded())
-        }
-
-        return Int32((delta * 120).rounded())
+        _ = precise
+        let scaledDelta = delta * 120
+        return Int32(scaledDelta.rounded())
     }
 
     func rawRelativeMouseDeltaX(for event: NSEvent) -> Int64 {

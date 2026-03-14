@@ -633,6 +633,9 @@ final class AppCoordinator: ObservableObject {
             launchesFullscreen: launchesFullscreen,
             usesRawMouse: usesRawMouse
         )
+        sessionController.onInputResetRequested = { [weak streamWindowController] in
+            streamWindowController?.resetLocalInputState()
+        }
 
         activeSessionController = sessionController
         activeErrorWindowController = errorWindowController
