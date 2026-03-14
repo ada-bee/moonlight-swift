@@ -47,8 +47,8 @@ final class StreamViewController: NSViewController {
         inputView.setFullscreenPresentation(isFullscreen)
     }
 
-    func setMouseCaptureActive(_ isActive: Bool) {
-        inputView.isMouseCaptureActive = isActive
+    func setMouseCaptureState(_ isActive: Bool) {
+        inputView.setMouseCaptureState(isActive)
     }
 
     func releaseAllRemoteInputs() {

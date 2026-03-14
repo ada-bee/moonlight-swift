@@ -112,8 +112,7 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         _ = notification
-        disableRawMouseCaptureIfNeeded()
-        streamViewController.handleWindowDidResignKey()
+        performWindowInputReset(disableRawCapture: true, resetInputState: true)
     }
 
     func windowWillEnterFullScreen(_ notification: Notification) {
@@ -131,8 +130,7 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillExitFullScreen(_ notification: Notification) {
         _ = notification
-        streamViewController.releaseAllRemoteInputs()
-        disableRawMouseCaptureIfNeeded()
+        performWindowInputReset(disableRawCapture: true, resetInputState: false)
         streamViewController.setFullscreenPresentation(false)
     }
 
@@ -145,12 +143,29 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         _ = notification
-        disableRawMouseCaptureIfNeeded()
-        streamViewController.releaseAllRemoteInputs()
+        performWindowInputReset(disableRawCapture: true, resetInputState: false)
     }
 }
 
 private extension StreamWindowController {
+    func performWindowInputReset(disableRawCapture: Bool, resetInputState: Bool) {
+        let rawCaptureOwnedInputState = disableRawCapture && (rawMouseCaptureEnabled || rawMouseCursorHidden)
+
+        if disableRawCapture {
+            disableRawMouseCaptureIfNeeded()
+        }
+
+        guard !rawCaptureOwnedInputState else {
+            return
+        }
+
+        if resetInputState {
+            streamViewController.handleWindowDidResignKey()
+        } else {
+            streamViewController.releaseAllRemoteInputs()
+        }
+    }
+
     func updateRawMouseCapture() {
         guard !localCommandSuppressionActive else {
             disableRawMouseCaptureIfNeeded()
@@ -175,7 +190,7 @@ private extension StreamWindowController {
 
     func enableRawMouseCaptureIfNeeded() {
         guard !rawMouseCaptureEnabled else {
-            streamViewController.setMouseCaptureActive(true)
+            streamViewController.setMouseCaptureState(true)
             return
         }
 
@@ -191,12 +206,12 @@ private extension StreamWindowController {
         NSCursor.hide()
         rawMouseCursorHidden = true
         rawMouseCaptureEnabled = true
-        streamViewController.setMouseCaptureActive(true)
+        streamViewController.setMouseCaptureState(true)
     }
 
     func disableRawMouseCaptureIfNeeded() {
         guard rawMouseCaptureEnabled || rawMouseCursorHidden else {
-            streamViewController.setMouseCaptureActive(false)
+            streamViewController.setMouseCaptureState(false)
             return
         }
 
@@ -208,7 +223,7 @@ private extension StreamWindowController {
 
         rawMouseCursorHidden = false
         rawMouseCaptureEnabled = false
-        streamViewController.setMouseCaptureActive(false)
+        streamViewController.setMouseCaptureState(false)
     }
 
     func applyWindowSizing(isFullscreen: Bool) {
