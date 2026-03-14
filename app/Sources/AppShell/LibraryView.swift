@@ -52,6 +52,7 @@ struct LibraryView: View {
                                 application: application,
                                 launchesFullscreen: model.launchesFullscreen(for: application.id),
                                 selectedResolution: model.windowedResolution(for: application.id),
+                                selectedFPS: model.windowedFPS(for: application.id),
                                 playDisabled: model.launchInProgress || model.stopInProgress,
                                 pauseDisabled: model.activeStreamApplicationID != application.id,
                                 stopDisabled: model.stopInProgress || model.launchInProgress,
@@ -67,8 +68,8 @@ struct LibraryView: View {
                                 onFullscreenChange: { launchesFullscreen in
                                     model.setLaunchesFullscreen(launchesFullscreen, for: application.id)
                                 },
-                                onResolutionChange: { resolution in
-                                    model.setWindowedResolution(resolution, for: application.id)
+                                onDisplayModeChange: { resolution, fps in
+                                    model.setWindowedDisplayMode(resolution, fps: fps, for: application.id)
                                 }
                             )
                         }

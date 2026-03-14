@@ -3,10 +3,25 @@ import Foundation
 public struct AppGameLaunchPreferences: Codable, Sendable, Equatable {
     public var launchesFullscreen: Bool
     public var windowedResolution: MVPConfiguration.Video.Resolution
+    public var windowedFPS: Int
 
-    public init(launchesFullscreen: Bool, windowedResolution: MVPConfiguration.Video.Resolution) {
+    public init(launchesFullscreen: Bool, windowedResolution: MVPConfiguration.Video.Resolution, windowedFPS: Int) {
         self.launchesFullscreen = launchesFullscreen
         self.windowedResolution = windowedResolution
+        self.windowedFPS = windowedFPS
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case launchesFullscreen
+        case windowedResolution
+        case windowedFPS
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        launchesFullscreen = try container.decodeIfPresent(Bool.self, forKey: .launchesFullscreen) ?? false
+        windowedResolution = try container.decodeIfPresent(MVPConfiguration.Video.Resolution.self, forKey: .windowedResolution) ?? .init(width: 2560, height: 1440)
+        windowedFPS = try container.decodeIfPresent(Int.self, forKey: .windowedFPS) ?? 120
     }
 }
 
@@ -88,7 +103,8 @@ public extension AppSettings {
         appID: Int,
         autoConnectOnLaunch: Bool = false,
         requestResume: Bool = false,
-        resolution: MVPConfiguration.Video.Resolution? = nil
+        resolution: MVPConfiguration.Video.Resolution? = nil,
+        fps: Int? = nil
     ) throws -> MVPConfiguration {
         guard let host else {
             throw AppSettingsError.missingHost
@@ -101,7 +117,7 @@ public extension AppSettings {
             session: .init(autoConnectOnLaunch: autoConnectOnLaunch, requestResume: requestResume),
             video: .init(
                 resolution: requestedResolution,
-                fps: video.fps,
+                fps: fps ?? video.fps,
                 vsync: video.vsync,
                 bitrateKbps: video.bitrateKbps,
                 packetSize: video.packetSize
@@ -116,7 +132,8 @@ public extension AppSettings {
 
         return AppGameLaunchPreferences(
             launchesFullscreen: false,
-            windowedResolution: MVPConfiguration.Video.Resolution(width: video.width, height: video.height)
+            windowedResolution: MVPConfiguration.Video.Resolution(width: video.width, height: video.height),
+            windowedFPS: video.fps
         )
     }
 

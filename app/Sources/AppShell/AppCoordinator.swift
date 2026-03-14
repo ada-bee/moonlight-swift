@@ -291,14 +291,15 @@ final class AppCoordinator: ObservableObject {
                 }
 
                 let preferences = await MainActor.run { self.settings.launchPreferences(for: app.id) }
-                let requestedResolution = await MainActor.run { self.launchResolution(for: preferences) }
+                let requestedVideoMode = await MainActor.run { self.launchVideoMode(for: preferences) }
                 let requestResume = runningApplicationID == app.id
                 let configuration = try await MainActor.run {
                     try self.settings.makeConfiguration(
                         appID: app.id,
                         autoConnectOnLaunch: false,
                         requestResume: requestResume,
-                        resolution: requestedResolution
+                        resolution: requestedVideoMode.resolution,
+                        fps: requestedVideoMode.fps
                     )
                 }
 
@@ -324,13 +325,14 @@ final class AppCoordinator: ObservableObject {
         updateLaunchPreferences(preferences, for: applicationID)
     }
 
-    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
+    func setWindowedDisplayMode(_ resolution: MVPConfiguration.Video.Resolution, fps: Int, for applicationID: Int) {
         var preferences = settings.launchPreferences(for: applicationID)
-        guard preferences.windowedResolution != resolution else {
+        guard preferences.windowedResolution != resolution || preferences.windowedFPS != fps else {
             return
         }
 
         preferences.windowedResolution = resolution
+        preferences.windowedFPS = fps
         updateLaunchPreferences(preferences, for: applicationID)
     }
 
@@ -568,19 +570,22 @@ final class AppCoordinator: ObservableObject {
         return applications.first(where: { $0.isRunning })?.id ?? 0
     }
 
-    private func launchResolution(for preferences: AppGameLaunchPreferences) -> MVPConfiguration.Video.Resolution {
+    private func launchVideoMode(for preferences: AppGameLaunchPreferences) -> (resolution: MVPConfiguration.Video.Resolution, fps: Int) {
         if preferences.launchesFullscreen,
            let mainScreen = NSScreen.main
         {
             let frame = mainScreen.frame
             let scale = max(mainScreen.backingScaleFactor, 1.0)
-            return MVPConfiguration.Video.Resolution(
-                width: Int(frame.width * scale),
-                height: Int(frame.height * scale)
+            return (
+                resolution: MVPConfiguration.Video.Resolution(
+                    width: Int(frame.width * scale),
+                    height: Int(frame.height * scale)
+                ),
+                fps: settings.video.fps
             )
         }
 
-        return preferences.windowedResolution
+        return (resolution: preferences.windowedResolution, fps: preferences.windowedFPS)
     }
 
     private func updateLaunchPreferences(_ preferences: AppGameLaunchPreferences, for applicationID: Int) {

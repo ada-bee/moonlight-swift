@@ -57,12 +57,16 @@ final class MainWindowModel: ObservableObject {
         launchPreferences(for: applicationID).windowedResolution
     }
 
+    func windowedFPS(for applicationID: Int) -> Int {
+        launchPreferences(for: applicationID).windowedFPS
+    }
+
     func setLaunchesFullscreen(_ launchesFullscreen: Bool, for applicationID: Int) {
         coordinator.setLaunchesFullscreen(launchesFullscreen, for: applicationID)
     }
 
-    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
-        coordinator.setWindowedResolution(resolution, for: applicationID)
+    func setWindowedDisplayMode(_ resolution: MVPConfiguration.Video.Resolution, fps: Int, for applicationID: Int) {
+        coordinator.setWindowedDisplayMode(resolution, fps: fps, for: applicationID)
     }
 
     private func bindCoordinator() {

@@ -3,18 +3,20 @@ import MoonlightCore
 import SwiftUI
 
 struct LibraryTileView: View {
-    struct ResolutionOption: Hashable, Identifiable {
+    struct DisplayModeOption: Hashable, Identifiable {
         let resolution: MVPConfiguration.Video.Resolution
+        let fps: Int
         let label: String
 
         var id: String {
-            "\(resolution.width)x\(resolution.height)"
+            "\(resolution.width)x\(resolution.height)@\(fps)"
         }
     }
 
     let application: HostApplication
     let launchesFullscreen: Bool
     let selectedResolution: MVPConfiguration.Video.Resolution
+    let selectedFPS: Int
     let playDisabled: Bool
     let pauseDisabled: Bool
     let stopDisabled: Bool
@@ -22,14 +24,12 @@ struct LibraryTileView: View {
     let onPause: () -> Void
     let onStop: () -> Void
     let onFullscreenChange: (Bool) -> Void
-    let onResolutionChange: (MVPConfiguration.Video.Resolution) -> Void
+    let onDisplayModeChange: (MVPConfiguration.Video.Resolution, Int) -> Void
 
-    private static let resolutionOptions: [ResolutionOption] = [
-        .init(resolution: .init(width: 1280, height: 720), label: "1280 x 720"),
-        .init(resolution: .init(width: 1600, height: 900), label: "1600 x 900"),
-        .init(resolution: .init(width: 1920, height: 1080), label: "1920 x 1080"),
-        .init(resolution: .init(width: 2560, height: 1440), label: "2560 x 1440"),
-        .init(resolution: .init(width: 3840, height: 2160), label: "3840 x 2160")
+    private static let displayModeOptions: [DisplayModeOption] = [
+        .init(resolution: .init(width: 3840, height: 1600), fps: 120, label: "3840 x 1600 @ 120"),
+        .init(resolution: .init(width: 2440, height: 1520), fps: 120, label: "2440 x 1520 @ 120"),
+        .init(resolution: .init(width: 1280, height: 800), fps: 60, label: "1280 x 800 @ 60")
     ]
 
     var body: some View {
@@ -64,19 +64,19 @@ struct LibraryTileView: View {
                     .toggleStyle(.checkbox)
                     .fixedSize()
 
-                    Picker("Resolution", selection: resolutionBinding) {
-                        ForEach(Self.resolutionOptions) { option in
+                    Picker("Display Mode", selection: displayModeBinding) {
+                        ForEach(Self.displayModeOptions) { option in
                             Text(option.label)
-                                .tag(option.resolution)
+                                .tag(option)
                         }
 
-                        if Self.resolutionOptions.contains(where: { $0.resolution == selectedResolution }) == false {
-                            Text("\(selectedResolution.width) x \(selectedResolution.height)")
-                                .tag(selectedResolution)
+                        if Self.displayModeOptions.contains(selectedDisplayMode) == false {
+                            Text(selectedDisplayMode.label)
+                                .tag(selectedDisplayMode)
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 150)
+                    .frame(width: 190)
                     .disabled(launchesFullscreen)
                 }
             }
@@ -152,11 +152,21 @@ struct LibraryTileView: View {
         )
     }
 
-    private var resolutionBinding: Binding<MVPConfiguration.Video.Resolution> {
+    private var selectedDisplayMode: DisplayModeOption {
+        Self.displayModeOptions.first(where: {
+            $0.resolution == selectedResolution && $0.fps == selectedFPS
+        }) ?? .init(
+            resolution: selectedResolution,
+            fps: selectedFPS,
+            label: "\(selectedResolution.width) x \(selectedResolution.height) @ \(selectedFPS)"
+        )
+    }
+
+    private var displayModeBinding: Binding<DisplayModeOption> {
         Binding(
-            get: { selectedResolution },
+            get: { selectedDisplayMode },
             set: { newValue in
-                onResolutionChange(newValue)
+                onDisplayModeChange(newValue.resolution, newValue.fps)
             }
         )
     }
