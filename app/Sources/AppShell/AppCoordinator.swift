@@ -258,6 +258,11 @@ final class AppCoordinator: ObservableObject {
             return
         }
 
+        if let failureMessage = RuntimeSupport.currentStatus().failureMessage {
+            libraryActionError = failureMessage
+            return
+        }
+
         launchInProgress = true
         libraryActionError = nil
 

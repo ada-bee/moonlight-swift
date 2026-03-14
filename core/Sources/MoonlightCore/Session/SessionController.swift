@@ -92,6 +92,14 @@ public final class SessionController: NSObject, ObservableObject {
             return
         }
 
+        if let failureMessage = RuntimeSupport.currentStatus().failureMessage {
+            endStreamingActivity()
+            lastErrorDescription = failureMessage
+            stageName = "Unsupported"
+            state = .failed
+            return
+        }
+
         lastErrorDescription = nil
         stageName = "Connecting"
         state = .connecting

@@ -1071,7 +1071,7 @@ extension MetalRendererError: LocalizedError {
         case .unsupportedAV1SequenceHeader:
             return "Only 8-bit AV1 Main profile 4:2:0 streams are supported."
         case .hardwareDecodeUnavailable:
-            return "AV1 hardware decode is unavailable on this Mac."
+            return RuntimeSupport.av1HardwareDecodeRequirementMessage
         case .hardwareDecoderRequirementNotMet:
             return "VideoToolbox did not provide a hardware AV1 decoder session."
         case let .failedToCreateFormatDescription(status):
