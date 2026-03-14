@@ -110,7 +110,7 @@ public final class HostSessionBootstrapper {
             URLQueryItem(name: "appid", value: String(configuration.host.appID)),
             URLQueryItem(name: "mode", value: "\(configuration.video.resolution.width)x\(configuration.video.resolution.height)x\(configuration.video.fps)"),
             URLQueryItem(name: "additionalStates", value: "1"),
-            URLQueryItem(name: "sops", value: configuration.video.vsync ? "1" : "0"),
+            URLQueryItem(name: "sops", value: "1"),
             URLQueryItem(name: "rikey", value: launchSession.riKeyHex),
             URLQueryItem(name: "rikeyid", value: String(launchSession.riKeyID)),
             URLQueryItem(name: "localAudioPlayMode", value: "0"),

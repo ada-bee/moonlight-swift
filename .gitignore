@@ -24,9 +24,5 @@ Package.resolved
 logs/
 tmp/
 
-# Local config overrides
-configs/local.json
-configs/secrets.json
-
 # Local pairing state
 tools/.quick-pair/

@@ -39,7 +39,6 @@ public struct AppSettings: Codable, Sendable {
         public var width: Int
         public var height: Int
         public var fps: Int
-        public var vsync: Bool
         public var bitrateKbps: Int
         public var packetSize: Int
 
@@ -47,14 +46,12 @@ public struct AppSettings: Codable, Sendable {
             width: Int,
             height: Int,
             fps: Int,
-            vsync: Bool,
             bitrateKbps: Int,
             packetSize: Int
         ) {
             self.width = width
             self.height = height
             self.fps = fps
-            self.vsync = vsync
             self.bitrateKbps = bitrateKbps
             self.packetSize = packetSize
         }
@@ -100,7 +97,6 @@ public extension AppSettings {
             width: MVPConfiguration.fallback.video.resolution.width,
             height: MVPConfiguration.fallback.video.resolution.height,
             fps: MVPConfiguration.fallback.video.fps,
-            vsync: MVPConfiguration.fallback.video.vsync,
             bitrateKbps: MVPConfiguration.fallback.video.bitrateKbps,
             packetSize: MVPConfiguration.fallback.video.packetSize
         ),
@@ -127,7 +123,6 @@ public extension AppSettings {
             video: .init(
                 resolution: requestedResolution,
                 fps: fps ?? video.fps,
-                vsync: video.vsync,
                 bitrateKbps: video.bitrateKbps,
                 packetSize: video.packetSize
             )

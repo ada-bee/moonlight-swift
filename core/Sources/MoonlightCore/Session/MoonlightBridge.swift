@@ -335,6 +335,8 @@ public final class MoonlightBridge {
 
 extension MoonlightBridge: @unchecked Sendable {}
 
+private let moonlightVideoFrameDataPool = VideoFrameDataPool(maximumReusableSlabCount: 4)
+
 private final class ErrorBox: @unchecked Sendable {
     var error: Error?
 }
@@ -449,7 +451,9 @@ func MoonlightSwiftVideoSubmitDecodeUnit(_ context: UnsafeMutableRawPointer?, _ 
 
     let sequenceHeader: Data?
     if unit.frameType == Int32(FRAME_TYPE_IDR) {
-        sequenceHeader = AV1Bitstream.extractSequenceHeaderOBU(from: frameData as Data)
+        sequenceHeader = frameData.withUnsafeBytes { buffer in
+            AV1Bitstream.extractSequenceHeaderOBU(from: buffer)
+        }
     } else {
         sequenceHeader = nil
     }
@@ -465,9 +469,10 @@ func MoonlightSwiftVideoSubmitDecodeUnit(_ context: UnsafeMutableRawPointer?, _ 
     return bridge.renderer.submit(frameSubmission: submission)
 }
 
-private func makeVideoFrameData(from unit: DECODE_UNIT) -> NSData? {
+private func makeVideoFrameData(from unit: DECODE_UNIT) -> VideoFrameData? {
     let totalLength = Int(unit.fullLength)
-    guard totalLength > 0, let frameData = NSMutableData(length: totalLength) else {
+    guard totalLength > 0,
+          let slab = moonlightVideoFrameDataPool.checkout(minimumCapacity: totalLength) else {
         return nil
     }
 
@@ -487,7 +492,7 @@ private func makeVideoFrameData(from unit: DECODE_UNIT) -> NSData? {
             return nil
         }
 
-        memcpy(frameData.mutableBytes.advanced(by: copiedLength), rawData, byteCount)
+        memcpy(slab.bytes.advanced(by: copiedLength), rawData, byteCount)
         copiedLength += byteCount
     }
 
@@ -495,7 +500,7 @@ private func makeVideoFrameData(from unit: DECODE_UNIT) -> NSData? {
         return nil
     }
 
-    return frameData
+    return VideoFrameData(slab: slab, length: copiedLength)
 }
 
 @_cdecl("MoonlightSwiftAudioInit")

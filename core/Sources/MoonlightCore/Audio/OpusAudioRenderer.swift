@@ -18,6 +18,10 @@ final class OpusAudioRenderer {
     private var samplesPerFrame: AVAudioFrameCount = 480
     private var queuedFrameCount: AVAudioFramePosition = 0
     private var maximumQueuedFrameCount: AVAudioFramePosition = 4_800
+    private var maximumCompressedBufferPoolCount = 0
+    private var maximumPCMBufferPoolCount = 0
+    private var compressedBufferPool: [PooledCompressedPacket] = []
+    private var pcmBufferPool: [AVAudioPCMBuffer] = []
     private var isStarted = false
     private var generation: UInt64 = 0
     private var lastReportedError: String?
@@ -98,6 +102,9 @@ final class OpusAudioRenderer {
                 self.channelCount = AVAudioChannelCount(config.channelCount)
                 self.samplesPerFrame = AVAudioFrameCount(config.samplesPerFrame)
                 self.maximumQueuedFrameCount = max(AVAudioFramePosition(config.samplesPerFrame * 12), AVAudioFramePosition(config.sampleRate / 20))
+                let queuedPacketDepth = Int((self.maximumQueuedFrameCount + AVAudioFramePosition(config.samplesPerFrame) - 1) / AVAudioFramePosition(config.samplesPerFrame))
+                self.maximumCompressedBufferPoolCount = max(queuedPacketDepth + 2, 4)
+                self.maximumPCMBufferPoolCount = max(queuedPacketDepth + 2, 4)
                 self.queuedFrameCount = 0
                 self.isStarted = false
                 self.clearErrorLocked()
@@ -159,14 +166,31 @@ final class OpusAudioRenderer {
             return
         }
 
-        guard let packet = OwnedAudioPacket(copying: sampleData, count: Int(sampleLength)) else {
-            reportError("Failed to allocate audio packet buffer")
+        let sampleLength = Int(sampleLength)
+        let preparedPacket = stateQueue.sync { () -> PacketPreparationResult in
+            guard isStarted, let opusFormat else {
+                return .drop
+            }
+
+            guard let packet = acquireCompressedPacketLocked(opusFormat: opusFormat, minimumPacketSize: sampleLength) else {
+                return .allocationFailure
+            }
+
+            return .ready(packet: packet, generation: generation)
+        }
+
+        guard case let .ready(packet, generation) = preparedPacket else {
+            if case .allocationFailure = preparedPacket {
+                reportError("Failed to allocate audio packet buffer")
+            }
             return
         }
 
+        packet.prepareForPacket(byteCount: sampleLength)
+        memcpy(packet.buffer.data, sampleData, sampleLength)
+
         stateQueue.async {
             StreamingPriority.promoteCurrentThreadForAudioCallbacks()
-            let generation = self.generation
             self.decodeAndSchedulePacketLocked(packet, generation: generation)
         }
     }
@@ -175,58 +199,58 @@ final class OpusAudioRenderer {
 extension OpusAudioRenderer: @unchecked Sendable {}
 
 private extension OpusAudioRenderer {
-    func decodeAndSchedulePacketLocked(_ packet: OwnedAudioPacket, generation: UInt64) {
+    func decodeAndSchedulePacketLocked(_ packet: PooledCompressedPacket, generation: UInt64) {
         guard generation == self.generation else {
+            releaseCompressedPacketLocked(packet, generation: generation, allowPoolReuse: false)
             return
         }
 
         guard isStarted else {
+            releaseCompressedPacketLocked(packet, generation: generation, allowPoolReuse: true)
             return
         }
 
-        guard let converter, let opusFormat, let outputFormat, let playerNode else {
+        guard let converter, let outputFormat, let playerNode else {
+            releaseCompressedPacketLocked(packet, generation: generation, allowPoolReuse: true)
             reportErrorLocked("Audio packet received before renderer setup")
             return
         }
 
         guard queuedFrameCount < maximumQueuedFrameCount else {
+            releaseCompressedPacketLocked(packet, generation: generation, allowPoolReuse: true)
             reportErrorLocked("Dropping audio packet due to playback backlog")
             return
         }
 
-        let maximumPacketSize = max(packet.data.length, 1)
-        let compressedBuffer = AVAudioCompressedBuffer(
-            format: opusFormat,
-            packetCapacity: 1,
-            maximumPacketSize: maximumPacketSize
-        )
-        compressedBuffer.packetCount = 1
-        compressedBuffer.byteLength = UInt32(packet.data.length)
+        packet.preparePacketDescription()
 
-        guard let packetDescriptions = compressedBuffer.packetDescriptions else {
+        guard packet.buffer.packetDescriptions != nil else {
+            releaseCompressedPacketLocked(packet, generation: generation, allowPoolReuse: true)
             reportErrorLocked("Audio decoder packet description unavailable")
             return
         }
 
-        packetDescriptions[0].mStartOffset = 0
-        packetDescriptions[0].mVariableFramesInPacket = 0
-        packetDescriptions[0].mDataByteSize = UInt32(packet.data.length)
-
-        UnsafeMutableRawPointer(compressedBuffer.data).copyMemory(from: packet.data.bytes, byteCount: packet.data.length)
-
-        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: samplesPerFrame) else {
+        guard let pcmBuffer = acquirePCMBufferLocked(outputFormat: outputFormat) else {
+            releaseCompressedPacketLocked(packet, generation: generation, allowPoolReuse: true)
             reportErrorLocked("Failed to allocate decoded audio buffer")
             return
         }
 
-        let packetSource = AudioCompressedPacketSource(compressedBuffer: compressedBuffer)
+        pcmBuffer.frameLength = 0
+
+        let packetSource = AudioCompressedPacketSource(compressedBuffer: packet.buffer)
         var conversionError: NSError?
         let status = converter.convert(to: pcmBuffer, error: &conversionError) { _, outStatus in
             packetSource.nextBuffer(outStatus: outStatus)
         }
 
+        releaseCompressedPacketLocked(packet, generation: generation, allowPoolReuse: true)
+
         if let conversionError {
+            releasePCMBufferLocked(pcmBuffer, generation: generation, allowPoolReuse: true)
             reportErrorLocked("Audio decode failed: \(conversionError.localizedDescription)")
+            self.generation &+= 1
+            clearBufferPoolsLocked()
             converter.reset()
             queuedFrameCount = 0
             playerNode.stop()
@@ -235,11 +259,13 @@ private extension OpusAudioRenderer {
         }
 
         guard status == .haveData || status == .inputRanDry || status == .endOfStream else {
+            releasePCMBufferLocked(pcmBuffer, generation: generation, allowPoolReuse: true)
             reportErrorLocked("Audio decode returned status \(status.rawValue)")
             return
         }
 
         guard pcmBuffer.frameLength > 0 else {
+            releasePCMBufferLocked(pcmBuffer, generation: generation, allowPoolReuse: true)
             return
         }
 
@@ -248,7 +274,10 @@ private extension OpusAudioRenderer {
 
         playerNode.scheduleBuffer(pcmBuffer) {
             self.stateQueue.async {
-                self.queuedFrameCount = max(0, self.queuedFrameCount - frameLength)
+                if generation == self.generation {
+                    self.queuedFrameCount = max(0, self.queuedFrameCount - frameLength)
+                }
+                self.releasePCMBufferLocked(pcmBuffer, generation: generation, allowPoolReuse: true)
             }
         }
 
@@ -265,6 +294,7 @@ private extension OpusAudioRenderer {
     func stopLocked(resetConverter: Bool) {
         isStarted = false
         queuedFrameCount = 0
+        clearBufferPoolsLocked()
         playerNode?.stop()
         engine?.stop()
 
@@ -281,7 +311,57 @@ private extension OpusAudioRenderer {
         converter = nil
         opusFormat = nil
         outputFormat = nil
+        maximumCompressedBufferPoolCount = 0
+        maximumPCMBufferPoolCount = 0
         clearErrorLocked()
+    }
+
+    func acquireCompressedPacketLocked(opusFormat: AVAudioFormat, minimumPacketSize: Int) -> PooledCompressedPacket? {
+        let minimumPacketSize = max(minimumPacketSize, 1)
+
+        if let index = compressedBufferPool.firstIndex(where: { $0.maximumPacketSize >= minimumPacketSize }) {
+            return compressedBufferPool.remove(at: index)
+        }
+
+        let buffer = AVAudioCompressedBuffer(
+            format: opusFormat,
+            packetCapacity: 1,
+            maximumPacketSize: minimumPacketSize
+        )
+        return PooledCompressedPacket(buffer: buffer, maximumPacketSize: minimumPacketSize)
+    }
+
+    func releaseCompressedPacketLocked(_ packet: PooledCompressedPacket, generation: UInt64, allowPoolReuse: Bool) {
+        packet.reset()
+
+        guard allowPoolReuse, generation == self.generation, compressedBufferPool.count < maximumCompressedBufferPoolCount else {
+            return
+        }
+
+        compressedBufferPool.append(packet)
+    }
+
+    func acquirePCMBufferLocked(outputFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if let buffer = pcmBufferPool.popLast() {
+            return buffer
+        }
+
+        return AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: samplesPerFrame)
+    }
+
+    func releasePCMBufferLocked(_ buffer: AVAudioPCMBuffer, generation: UInt64, allowPoolReuse: Bool) {
+        buffer.frameLength = 0
+
+        guard allowPoolReuse, generation == self.generation, pcmBufferPool.count < maximumPCMBufferPoolCount else {
+            return
+        }
+
+        pcmBufferPool.append(buffer)
+    }
+
+    func clearBufferPoolsLocked() {
+        compressedBufferPool.removeAll(keepingCapacity: false)
+        pcmBufferPool.removeAll(keepingCapacity: false)
     }
 
     func reportError(_ message: String) {
@@ -320,16 +400,39 @@ private extension OpusAudioRenderer {
     }
 }
 
-private final class OwnedAudioPacket: @unchecked Sendable {
-    let data: NSMutableData
+private enum PacketPreparationResult {
+    case ready(packet: PooledCompressedPacket, generation: UInt64)
+    case drop
+    case allocationFailure
+}
 
-    init?(copying bytes: UnsafeMutablePointer<CChar>, count: Int) {
-        guard let data = NSMutableData(length: count) else {
-            return nil
+private final class PooledCompressedPacket: @unchecked Sendable {
+    let buffer: AVAudioCompressedBuffer
+    let maximumPacketSize: Int
+
+    init(buffer: AVAudioCompressedBuffer, maximumPacketSize: Int) {
+        self.buffer = buffer
+        self.maximumPacketSize = maximumPacketSize
+    }
+
+    func prepareForPacket(byteCount: Int) {
+        buffer.packetCount = 1
+        buffer.byteLength = UInt32(byteCount)
+    }
+
+    func preparePacketDescription() {
+        guard let packetDescriptions = buffer.packetDescriptions else {
+            return
         }
 
-        memcpy(data.mutableBytes, bytes, count)
-        self.data = data
+        packetDescriptions[0].mStartOffset = 0
+        packetDescriptions[0].mVariableFramesInPacket = 0
+        packetDescriptions[0].mDataByteSize = buffer.byteLength
+    }
+
+    func reset() {
+        buffer.packetCount = 0
+        buffer.byteLength = 0
     }
 }
 

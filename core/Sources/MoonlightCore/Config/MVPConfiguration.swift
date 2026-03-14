@@ -75,20 +75,17 @@ public struct MVPConfiguration: Sendable, Codable {
 
         public var resolution: Resolution
         public var fps: Int
-        public var vsync: Bool
         public var bitrateKbps: Int
         public var packetSize: Int
 
         public init(
             resolution: Resolution,
             fps: Int,
-            vsync: Bool,
             bitrateKbps: Int,
             packetSize: Int
         ) {
             self.resolution = resolution
             self.fps = fps
-            self.vsync = vsync
             self.bitrateKbps = bitrateKbps
             self.packetSize = packetSize
         }
@@ -96,7 +93,6 @@ public struct MVPConfiguration: Sendable, Codable {
         private enum CodingKeys: String, CodingKey {
             case resolution
             case fps
-            case vsync
             case bitrateKbps
             case packetSize
         }
@@ -105,7 +101,6 @@ public struct MVPConfiguration: Sendable, Codable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             resolution = try container.decodeIfPresent(Resolution.self, forKey: .resolution) ?? .init(width: 2560, height: 1440)
             fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? 120
-            vsync = try container.decodeIfPresent(Bool.self, forKey: .vsync) ?? true
             bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? 80_000
             packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? 1392
         }
@@ -137,7 +132,6 @@ public extension MVPConfiguration {
         video: .init(
             resolution: .init(width: 2560, height: 1440),
             fps: 120,
-            vsync: true,
             bitrateKbps: 80000,
             packetSize: 1392
         )

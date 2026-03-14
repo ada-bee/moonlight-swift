@@ -691,7 +691,8 @@ private extension MetalVideoRenderer {
         presentationTime: CMTime
     ) -> CMSampleBuffer? {
         let frameData = frameSubmission.frameData
-        guard frameData.length > 0 else {
+        let frameLength = frameData.length
+        guard frameLength > 0 else {
             return nil
         }
 
@@ -704,7 +705,7 @@ private extension MetalVideoRenderer {
             AllocateBlock: nil,
             FreeBlock: { refCon, _, _ in
                 guard let refCon else { return }
-                Unmanaged<NSData>.fromOpaque(refCon).release()
+                Unmanaged<VideoFrameData>.fromOpaque(refCon).release()
             },
             refCon: retainedStorage.toOpaque()
         )
@@ -712,11 +713,11 @@ private extension MetalVideoRenderer {
         let status = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
             memoryBlock: memory,
-            blockLength: frameData.length,
+            blockLength: frameLength,
             blockAllocator: nil,
             customBlockSource: &blockSource,
             offsetToData: 0,
-            dataLength: frameData.length,
+            dataLength: frameLength,
             flags: 0,
             blockBufferOut: &blockBuffer
         )
@@ -733,7 +734,7 @@ private extension MetalVideoRenderer {
         )
 
         var sampleBuffer: CMSampleBuffer?
-        var sampleSize = frameData.length
+        var sampleSize = frameLength
         let sampleBufferStatus = CMSampleBufferCreateReady(
             allocator: kCFAllocatorDefault,
             dataBuffer: blockBuffer,
