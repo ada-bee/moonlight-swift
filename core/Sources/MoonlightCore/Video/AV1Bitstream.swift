@@ -41,16 +41,21 @@ struct AV1DecoderConfiguration: Equatable {
 
 enum AV1Bitstream {
     static func extractSequenceHeaderOBU(from temporalUnit: Data) -> Data? {
-        let bytes = [UInt8](temporalUnit)
+        temporalUnit.withUnsafeBytes { buffer in
+            extractSequenceHeaderOBU(from: buffer)
+        }
+    }
+
+    static func extractSequenceHeaderOBU(from temporalUnit: UnsafeRawBufferPointer) -> Data? {
         var offset = 0
 
-        while offset < bytes.count {
-            guard let obu = try? parseOBU(in: bytes, offset: offset) else {
+        while offset < temporalUnit.count {
+            guard let obu = try? parseOBU(in: temporalUnit, offset: offset) else {
                 return nil
             }
 
             if obu.type == .sequenceHeader {
-                return canonicalSequenceHeaderOBU(from: bytes, obu: obu)
+                return canonicalSequenceHeaderOBU(from: temporalUnit, obu: obu)
             }
 
             offset = obu.nextOffset
@@ -60,28 +65,30 @@ enum AV1Bitstream {
     }
 
     static func makeDecoderConfiguration(from sequenceHeaderOBU: Data) throws -> AV1DecoderConfiguration {
-        let bytes = [UInt8](sequenceHeaderOBU)
-        let obu = try parseOBU(in: bytes, offset: 0)
-        guard obu.type == .sequenceHeader, obu.nextOffset == bytes.count else {
-            throw AV1BitstreamError.invalidSequenceHeader
+        try sequenceHeaderOBU.withUnsafeBytes { buffer in
+            let obu = try parseOBU(in: buffer, offset: 0)
+            guard obu.type == .sequenceHeader, obu.nextOffset == buffer.count else {
+                throw AV1BitstreamError.invalidSequenceHeader
+            }
+
+            let descriptor = try parseSequenceHeader(in: buffer, payloadRange: obu.payloadRange)
+            let sequenceHeaderData = dataCopy(from: buffer)
+            let configurationRecord = makeCodecConfigurationRecord(
+                descriptor: descriptor,
+                sequenceHeaderOBU: sequenceHeaderData
+            )
+
+            return AV1DecoderConfiguration(
+                profile: descriptor.profile,
+                codecConfigurationRecord: configurationRecord,
+                bitDepth: descriptor.bitDepth,
+                chromaSubsamplingX: descriptor.chromaSubsamplingX,
+                chromaSubsamplingY: descriptor.chromaSubsamplingY,
+                codedWidth: descriptor.codedWidth,
+                codedHeight: descriptor.codedHeight,
+                sequenceHeaderOBU: sequenceHeaderData
+            )
         }
-
-        let descriptor = try parseSequenceHeader(from: Array(bytes[obu.payloadRange]))
-        let configurationRecord = makeCodecConfigurationRecord(
-            descriptor: descriptor,
-            sequenceHeaderOBU: Data(bytes)
-        )
-
-        return AV1DecoderConfiguration(
-            profile: descriptor.profile,
-            codecConfigurationRecord: configurationRecord,
-            bitDepth: descriptor.bitDepth,
-            chromaSubsamplingX: descriptor.chromaSubsamplingX,
-            chromaSubsamplingY: descriptor.chromaSubsamplingY,
-            codedWidth: descriptor.codedWidth,
-            codedHeight: descriptor.codedHeight,
-            sequenceHeaderOBU: Data(bytes)
-        )
     }
 }
 
@@ -120,7 +127,7 @@ private struct AV1DecoderModelInfo {
     let bufferDelayLength: Int
 }
 
-private func parseOBU(in bytes: [UInt8], offset: Int) throws -> AV1OBU {
+private func parseOBU(in bytes: UnsafeRawBufferPointer, offset: Int) throws -> AV1OBU {
     guard offset < bytes.count else {
         throw AV1BitstreamError.truncatedOBU
     }
@@ -168,7 +175,7 @@ private func parseOBU(in bytes: [UInt8], offset: Int) throws -> AV1OBU {
     )
 }
 
-private func decodeLEB128(in bytes: [UInt8], offset: Int) throws -> (value: Int, nextOffset: Int) {
+private func decodeLEB128(in bytes: UnsafeRawBufferPointer, offset: Int) throws -> (value: Int, nextOffset: Int) {
     var value = 0
     var shift = 0
     var cursor = offset
@@ -208,18 +215,23 @@ private func encodeLEB128(_ value: Int) -> Data {
     }
 }
 
-private func canonicalSequenceHeaderOBU(from bytes: [UInt8], obu: AV1OBU) -> Data {
+private func canonicalSequenceHeaderOBU(from bytes: UnsafeRawBufferPointer, obu: AV1OBU) -> Data {
     var output = Data([obu.headerByte | 0x02])
     if let extensionByte = obu.extensionByte {
         output.append(extensionByte)
     }
     output.append(encodeLEB128(obu.payloadRange.count))
-    output.append(contentsOf: bytes[obu.payloadRange])
+    if obu.payloadRange.count > 0, let baseAddress = bytes.baseAddress {
+        output.append(
+            baseAddress.advanced(by: obu.payloadRange.lowerBound).assumingMemoryBound(to: UInt8.self),
+            count: obu.payloadRange.count
+        )
+    }
     return output
 }
 
-private func parseSequenceHeader(from payload: [UInt8]) throws -> AV1SequenceHeaderDescriptor {
-    var reader = AV1BitReader(bytes: payload)
+private func parseSequenceHeader(in bytes: UnsafeRawBufferPointer, payloadRange: Range<Int>) throws -> AV1SequenceHeaderDescriptor {
+    var reader = try AV1BitReader(bytes: bytes, range: payloadRange)
     let profile = UInt8(try reader.readBits(3))
     _ = try reader.readFlag()
     let reducedStillPictureHeader = try reader.readFlag()
@@ -451,9 +463,29 @@ private func makeCodecConfigurationRecord(
     return record
 }
 
+private func dataCopy(from bytes: UnsafeRawBufferPointer) -> Data {
+    guard bytes.count > 0, let baseAddress = bytes.baseAddress else {
+        return Data()
+    }
+
+    return Data(bytes: baseAddress, count: bytes.count)
+}
+
 private struct AV1BitReader {
-    let bytes: [UInt8]
+    let bytes: UnsafeRawBufferPointer
+    let startByteOffset: Int
+    let byteCount: Int
     var bitOffset = 0
+
+    init(bytes: UnsafeRawBufferPointer, range: Range<Int>) throws {
+        guard range.lowerBound >= 0, range.upperBound <= bytes.count else {
+            throw AV1BitstreamError.invalidSequenceHeader
+        }
+
+        self.bytes = bytes
+        self.startByteOffset = range.lowerBound
+        self.byteCount = range.count
+    }
 
     mutating func readFlag() throws -> Bool {
         try readBits(1) == 1
@@ -466,11 +498,11 @@ private struct AV1BitReader {
 
         var value: UInt64 = 0
         for _ in 0..<count {
-            guard bitOffset < bytes.count * 8 else {
+            guard bitOffset < byteCount * 8 else {
                 throw AV1BitstreamError.invalidSequenceHeader
             }
 
-            let byteIndex = bitOffset / 8
+            let byteIndex = startByteOffset + (bitOffset / 8)
             let bitIndex = 7 - (bitOffset % 8)
             let bit = UInt64((bytes[byteIndex] >> bitIndex) & 0x01)
             value = (value << 1) | bit

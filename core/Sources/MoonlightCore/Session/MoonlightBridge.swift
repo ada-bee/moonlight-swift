@@ -443,33 +443,13 @@ func MoonlightSwiftVideoSubmitDecodeUnit(_ context: UnsafeMutableRawPointer?, _ 
     let bridge = Unmanaged<MoonlightBridge>.fromOpaque(context).takeUnretainedValue()
     let unit = decodeUnit.pointee
 
-    var frameData = Data()
-    frameData.reserveCapacity(Int(unit.fullLength))
-
-    var currentEntry = unit.bufferList
-    while let entry = currentEntry {
-        let buffer = entry.pointee
-        let byteCount = Int(buffer.length)
-        guard let rawData = buffer.data else {
-            currentEntry = entry.pointee.next
-            continue
-        }
-        let bytes = UnsafeBufferPointer(start: UnsafePointer<UInt8>(OpaquePointer(rawData)), count: byteCount)
-
-        if buffer.bufferType == Int32(BUFFER_TYPE_PICDATA) {
-            frameData.append(contentsOf: bytes)
-        }
-
-        currentEntry = entry.pointee.next
-    }
-
-    guard !frameData.isEmpty else {
+    guard let frameData = makeVideoFrameData(from: unit) else {
         return Int32(DR_NEED_IDR)
     }
 
     let sequenceHeader: Data?
     if unit.frameType == Int32(FRAME_TYPE_IDR) {
-        sequenceHeader = AV1Bitstream.extractSequenceHeaderOBU(from: frameData)
+        sequenceHeader = AV1Bitstream.extractSequenceHeaderOBU(from: frameData as Data)
     } else {
         sequenceHeader = nil
     }
@@ -483,6 +463,39 @@ func MoonlightSwiftVideoSubmitDecodeUnit(_ context: UnsafeMutableRawPointer?, _ 
     )
 
     return bridge.renderer.submit(frameSubmission: submission)
+}
+
+private func makeVideoFrameData(from unit: DECODE_UNIT) -> NSData? {
+    let totalLength = Int(unit.fullLength)
+    guard totalLength > 0, let frameData = NSMutableData(length: totalLength) else {
+        return nil
+    }
+
+    var copiedLength = 0
+    var currentEntry = unit.bufferList
+    while let entry = currentEntry {
+        let buffer = entry.pointee
+        defer { currentEntry = buffer.next }
+
+        guard buffer.bufferType == Int32(BUFFER_TYPE_PICDATA),
+              let rawData = buffer.data else {
+            continue
+        }
+
+        let byteCount = Int(buffer.length)
+        guard copiedLength + byteCount <= totalLength else {
+            return nil
+        }
+
+        memcpy(frameData.mutableBytes.advanced(by: copiedLength), rawData, byteCount)
+        copiedLength += byteCount
+    }
+
+    guard copiedLength == totalLength else {
+        return nil
+    }
+
+    return frameData
 }
 
 @_cdecl("MoonlightSwiftAudioInit")

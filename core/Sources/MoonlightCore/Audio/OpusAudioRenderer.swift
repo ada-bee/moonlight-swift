@@ -159,7 +159,10 @@ final class OpusAudioRenderer {
             return
         }
 
-        let packet = Data(bytes: sampleData, count: Int(sampleLength))
+        guard let packet = OwnedAudioPacket(copying: sampleData, count: Int(sampleLength)) else {
+            reportError("Failed to allocate audio packet buffer")
+            return
+        }
 
         stateQueue.async {
             StreamingPriority.promoteCurrentThreadForAudioCallbacks()
@@ -172,7 +175,7 @@ final class OpusAudioRenderer {
 extension OpusAudioRenderer: @unchecked Sendable {}
 
 private extension OpusAudioRenderer {
-    func decodeAndSchedulePacketLocked(_ packet: Data, generation: UInt64) {
+    func decodeAndSchedulePacketLocked(_ packet: OwnedAudioPacket, generation: UInt64) {
         guard generation == self.generation else {
             return
         }
@@ -191,14 +194,14 @@ private extension OpusAudioRenderer {
             return
         }
 
-        let maximumPacketSize = max(packet.count, 1)
+        let maximumPacketSize = max(packet.data.length, 1)
         let compressedBuffer = AVAudioCompressedBuffer(
             format: opusFormat,
             packetCapacity: 1,
             maximumPacketSize: maximumPacketSize
         )
         compressedBuffer.packetCount = 1
-        compressedBuffer.byteLength = UInt32(packet.count)
+        compressedBuffer.byteLength = UInt32(packet.data.length)
 
         guard let packetDescriptions = compressedBuffer.packetDescriptions else {
             reportErrorLocked("Audio decoder packet description unavailable")
@@ -207,15 +210,9 @@ private extension OpusAudioRenderer {
 
         packetDescriptions[0].mStartOffset = 0
         packetDescriptions[0].mVariableFramesInPacket = 0
-        packetDescriptions[0].mDataByteSize = UInt32(packet.count)
+        packetDescriptions[0].mDataByteSize = UInt32(packet.data.length)
 
-        packet.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else {
-                return
-            }
-
-            UnsafeMutableRawPointer(compressedBuffer.data).copyMemory(from: baseAddress, byteCount: packet.count)
-        }
+        UnsafeMutableRawPointer(compressedBuffer.data).copyMemory(from: packet.data.bytes, byteCount: packet.data.length)
 
         guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: samplesPerFrame) else {
             reportErrorLocked("Failed to allocate decoded audio buffer")
@@ -320,6 +317,19 @@ private extension OpusAudioRenderer {
         if message == nil, prefix == nil {
             self.lastReportedError = nil
         }
+    }
+}
+
+private final class OwnedAudioPacket: @unchecked Sendable {
+    let data: NSMutableData
+
+    init?(copying bytes: UnsafeMutablePointer<CChar>, count: Int) {
+        guard let data = NSMutableData(length: count) else {
+            return nil
+        }
+
+        memcpy(data.mutableBytes, bytes, count)
+        self.data = data
     }
 }
 

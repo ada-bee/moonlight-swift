@@ -16,7 +16,7 @@ public struct VideoFrameSubmission: @unchecked Sendable {
     public var frameType: Int32
     public var presentationTimeUs: UInt64
     public var rtpTimestamp: UInt32
-    public var frameData: Data
+    public var frameData: NSData
     public var sequenceHeader: Data?
 }
 
