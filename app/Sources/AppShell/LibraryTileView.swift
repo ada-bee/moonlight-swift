@@ -15,6 +15,7 @@ struct LibraryTileView: View {
 
     let application: HostApplication
     let launchesFullscreen: Bool
+    let usesRawMouse: Bool
     let selectedResolution: MVPConfiguration.Video.Resolution
     let selectedFPS: Int
     let playDisabled: Bool
@@ -24,6 +25,7 @@ struct LibraryTileView: View {
     let onPause: () -> Void
     let onStop: () -> Void
     let onFullscreenChange: (Bool) -> Void
+    let onRawMouseChange: (Bool) -> Void
     let onDisplayModeChange: (MVPConfiguration.Video.Resolution, Int) -> Void
 
     private static let displayModeOptions: [DisplayModeOption] = [
@@ -59,6 +61,13 @@ struct LibraryTileView: View {
 
                     Toggle(isOn: fullscreenBinding) {
                         Text("Full Screen")
+                            .font(.subheadline)
+                    }
+                    .toggleStyle(.checkbox)
+                    .fixedSize()
+
+                    Toggle(isOn: rawMouseBinding) {
+                        Text("Raw Mouse")
                             .font(.subheadline)
                     }
                     .toggleStyle(.checkbox)
@@ -148,6 +157,15 @@ struct LibraryTileView: View {
             get: { launchesFullscreen },
             set: { newValue in
                 onFullscreenChange(newValue)
+            }
+        )
+    }
+
+    private var rawMouseBinding: Binding<Bool> {
+        Binding(
+            get: { usesRawMouse },
+            set: { newValue in
+                onRawMouseChange(newValue)
             }
         )
     }

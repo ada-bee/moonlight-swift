@@ -2,17 +2,25 @@ import Foundation
 
 public struct AppGameLaunchPreferences: Codable, Sendable, Equatable {
     public var launchesFullscreen: Bool
+    public var usesRawMouse: Bool
     public var windowedResolution: MVPConfiguration.Video.Resolution
     public var windowedFPS: Int
 
-    public init(launchesFullscreen: Bool, windowedResolution: MVPConfiguration.Video.Resolution, windowedFPS: Int) {
+    public init(
+        launchesFullscreen: Bool,
+        usesRawMouse: Bool,
+        windowedResolution: MVPConfiguration.Video.Resolution,
+        windowedFPS: Int
+    ) {
         self.launchesFullscreen = launchesFullscreen
+        self.usesRawMouse = usesRawMouse
         self.windowedResolution = windowedResolution
         self.windowedFPS = windowedFPS
     }
 
     private enum CodingKeys: String, CodingKey {
         case launchesFullscreen
+        case usesRawMouse
         case windowedResolution
         case windowedFPS
     }
@@ -20,6 +28,7 @@ public struct AppGameLaunchPreferences: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         launchesFullscreen = try container.decodeIfPresent(Bool.self, forKey: .launchesFullscreen) ?? false
+        usesRawMouse = try container.decodeIfPresent(Bool.self, forKey: .usesRawMouse) ?? false
         windowedResolution = try container.decodeIfPresent(MVPConfiguration.Video.Resolution.self, forKey: .windowedResolution) ?? .init(width: 2560, height: 1440)
         windowedFPS = try container.decodeIfPresent(Int.self, forKey: .windowedFPS) ?? 120
     }
@@ -132,6 +141,7 @@ public extension AppSettings {
 
         return AppGameLaunchPreferences(
             launchesFullscreen: false,
+            usesRawMouse: false,
             windowedResolution: MVPConfiguration.Video.Resolution(width: video.width, height: video.height),
             windowedFPS: video.fps
         )

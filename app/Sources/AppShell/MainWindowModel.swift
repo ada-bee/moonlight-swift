@@ -53,6 +53,10 @@ final class MainWindowModel: ObservableObject {
         launchPreferences(for: applicationID).launchesFullscreen
     }
 
+    func usesRawMouse(for applicationID: Int) -> Bool {
+        launchPreferences(for: applicationID).usesRawMouse
+    }
+
     func windowedResolution(for applicationID: Int) -> MVPConfiguration.Video.Resolution {
         launchPreferences(for: applicationID).windowedResolution
     }
@@ -63,6 +67,10 @@ final class MainWindowModel: ObservableObject {
 
     func setLaunchesFullscreen(_ launchesFullscreen: Bool, for applicationID: Int) {
         coordinator.setLaunchesFullscreen(launchesFullscreen, for: applicationID)
+    }
+
+    func setUsesRawMouse(_ usesRawMouse: Bool, for applicationID: Int) {
+        coordinator.setUsesRawMouse(usesRawMouse, for: applicationID)
     }
 
     func setWindowedDisplayMode(_ resolution: MVPConfiguration.Video.Resolution, fps: Int, for applicationID: Int) {

@@ -4,6 +4,11 @@ import MoonlightCore
 
 @MainActor
 final class StreamInputView: NSView {
+    enum MouseMode {
+        case absolute
+        case raw
+    }
+
     private let sessionController: SessionController
     private let streamResolution: CGSize
 
@@ -12,10 +17,13 @@ final class StreamInputView: NSView {
     private var suppressRemoteInputForLocalCommand = false
     private var mouseInsideVideoRegion = false
     private var continueAbsoluteDragOutsideVideoRegion = false
+    private var mouseCaptureActive = false
     private var localCursorHiddenByView = false
     private var pressedMouseButtons: Set<SessionController.MouseButton> = []
     private var pressedKeys: [UInt16: SessionController.KeyboardFlags] = [:]
     private var pressedModifierKeys: Set<UInt16> = []
+
+    var onLocalCommandSuppressionChanged: ((Bool) -> Void)?
 
     var rendererView: NSView? {
         didSet {
@@ -37,15 +45,30 @@ final class StreamInputView: NSView {
         }
     }
 
-    var isFullscreenPointerCaptureEnabled = false {
+    var mouseMode: MouseMode = .absolute {
         didSet {
-            guard oldValue != isFullscreenPointerCaptureEnabled else {
+            guard oldValue != mouseMode else {
                 return
             }
 
             releaseAllRemoteInputs()
-            if isFullscreenPointerCaptureEnabled {
+            if mouseMode == .raw {
                 setLocalCursorHidden(false)
+            } else {
+                updateLocalCursorVisibility()
+            }
+        }
+    }
+
+    var isMouseCaptureActive = false {
+        didSet {
+            guard oldValue != isMouseCaptureActive else {
+                return
+            }
+
+            mouseCaptureActive = isMouseCaptureActive
+            if !isMouseCaptureActive {
+                releaseAllRemoteInputs()
             } else {
                 updateLocalCursorVisibility()
             }
@@ -134,7 +157,7 @@ final class StreamInputView: NSView {
 
     func handleWindowDidResignKey() {
         commandKeyActive = false
-        suppressRemoteInputForLocalCommand = false
+        setSuppressRemoteInputForLocalCommand(false)
         releaseAllRemoteInputs()
         mouseInsideVideoRegion = false
         setLocalCursorHidden(false)
@@ -144,7 +167,7 @@ final class StreamInputView: NSView {
         super.mouseEntered(with: event)
         window?.makeFirstResponder(self)
         mouseInsideVideoRegion = videoRect().contains(convert(event.locationInWindow, from: nil))
-        if !isFullscreenPointerCaptureEnabled {
+        if mouseMode == .absolute {
             forwardAbsoluteMouseIfNeeded(locationInView: convert(event.locationInWindow, from: nil), force: true)
         }
         updateLocalCursorVisibility()
@@ -219,7 +242,7 @@ final class StreamInputView: NSView {
             return
         }
 
-        if !isFullscreenPointerCaptureEnabled {
+        if mouseMode == .absolute {
             let location = convert(event.locationInWindow, from: nil)
             guard videoRect().contains(location) else {
                 return
@@ -286,12 +309,12 @@ final class StreamInputView: NSView {
             let commandDown = modifiers.contains(.command)
             if commandDown && !commandKeyActive {
                 commandKeyActive = true
-                suppressRemoteInputForLocalCommand = true
+                setSuppressRemoteInputForLocalCommand(true)
                 releaseAllRemoteInputs()
                 setLocalCursorHidden(false)
             } else if !commandDown && commandKeyActive {
                 commandKeyActive = false
-                suppressRemoteInputForLocalCommand = false
+                setSuppressRemoteInputForLocalCommand(false)
                 synchronizeModifierState(with: modifiers)
                 updateLocalCursorVisibility()
             }
@@ -328,14 +351,27 @@ final class StreamInputView: NSView {
 }
 
 private extension StreamInputView {
+    func setSuppressRemoteInputForLocalCommand(_ isSuppressed: Bool) {
+        guard suppressRemoteInputForLocalCommand != isSuppressed else {
+            return
+        }
+
+        suppressRemoteInputForLocalCommand = isSuppressed
+        onLocalCommandSuppressionChanged?(isSuppressed)
+    }
+
     func handleMouseMotion(_ event: NSEvent) {
         guard shouldForwardInput(for: event) else {
             return
         }
 
-        if isFullscreenPointerCaptureEnabled {
-            let deltaX = Int32(event.deltaX.rounded())
-            let deltaY = Int32(event.deltaY.rounded())
+        if mouseMode == .raw {
+            guard mouseCaptureActive else {
+                return
+            }
+
+            let deltaX = Int32(rawRelativeMouseDeltaX(for: event))
+            let deltaY = Int32(rawRelativeMouseDeltaY(for: event))
             if deltaX != 0 || deltaY != 0 {
                 sessionController.sendRelativeMouse(deltaX: deltaX, deltaY: deltaY)
             }
@@ -348,7 +384,7 @@ private extension StreamInputView {
 
     func handleMouseButton(_ event: NSEvent, button: SessionController.MouseButton, action: SessionController.MouseButtonAction) {
         guard shouldForwardInput(for: event) else {
-            if suppressRemoteInputForLocalCommand, action == .press, button == .left, !isFullscreenPointerCaptureEnabled {
+            if suppressRemoteInputForLocalCommand, action == .press, button == .left {
                 window?.performDrag(with: event)
             }
             return
@@ -357,7 +393,11 @@ private extension StreamInputView {
         let locationInView = convert(event.locationInWindow, from: nil)
         let insideVideo = videoRect().contains(locationInView)
 
-        if !isFullscreenPointerCaptureEnabled && action == .press && !insideVideo {
+        if mouseMode == .absolute && action == .press && !insideVideo {
+            return
+        }
+
+        if mouseMode == .raw && !mouseCaptureActive {
             return
         }
 
@@ -366,12 +406,12 @@ private extension StreamInputView {
         switch action {
         case .press:
             pressedMouseButtons.insert(button)
-            if !isFullscreenPointerCaptureEnabled {
+            if mouseMode == .absolute {
                 forwardAbsoluteMouseIfNeeded(locationInView: locationInView, force: true)
             }
         case .release:
             pressedMouseButtons.remove(button)
-            if !isFullscreenPointerCaptureEnabled && pressedMouseButtons.isEmpty {
+            if mouseMode == .absolute && pressedMouseButtons.isEmpty {
                 continueAbsoluteDragOutsideVideoRegion = false
             }
         }
@@ -532,9 +572,27 @@ private extension StreamInputView {
         return Int32((delta * 120).rounded())
     }
 
+    func rawRelativeMouseDeltaX(for event: NSEvent) -> Int64 {
+        if let cgEvent = event.cgEvent {
+            return cgEvent.getIntegerValueField(.mouseEventDeltaX)
+        }
+
+        return Int64(event.deltaX.rounded())
+    }
+
+    func rawRelativeMouseDeltaY(for event: NSEvent) -> Int64 {
+        if let cgEvent = event.cgEvent {
+            return cgEvent.getIntegerValueField(.mouseEventDeltaY)
+        }
+
+        return Int64(event.deltaY.rounded())
+    }
+
     func updateLocalCursorVisibility() {
-        guard !isFullscreenPointerCaptureEnabled else {
-            setLocalCursorHidden(false)
+        guard mouseMode != .raw else {
+            if localCursorHiddenByView {
+                setLocalCursorHidden(false)
+            }
             return
         }
 

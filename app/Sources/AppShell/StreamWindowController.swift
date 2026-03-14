@@ -17,13 +17,19 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     private let streamViewController: StreamViewController
     private let launchesFullscreen: Bool
-    private var cursorCaptureEnabled = false
-    private var cursorHidden = false
+    private let usesRawMouse: Bool
+    private var rawMouseCaptureEnabled = false
+    private var rawMouseCursorHidden = false
+    private var localCommandSuppressionActive = false
 
-    init(sessionController: SessionController, launchesFullscreen: Bool = false) {
+    init(sessionController: SessionController, launchesFullscreen: Bool = false, usesRawMouse: Bool = false) {
         self.sessionController = sessionController
-        self.streamViewController = StreamViewController(sessionController: sessionController)
         self.launchesFullscreen = launchesFullscreen
+        self.usesRawMouse = usesRawMouse
+        self.streamViewController = StreamViewController(
+            sessionController: sessionController,
+            mouseMode: usesRawMouse ? .raw : .absolute
+        )
 
         let contentRect = NSRect(origin: .zero, size: Self.streamContentSize(for: sessionController, screen: NSScreen.main))
         let window = StreamWindow(
@@ -46,6 +52,9 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
 
         window.delegate = self
+        streamViewController.onLocalCommandSuppressionChanged = { [weak self] isSuppressed in
+            self?.setLocalCommandSuppressionActive(isSuppressed)
+        }
         applyWindowSizing(isFullscreen: false)
         streamViewController.setFullscreenPresentation(false)
     }
@@ -94,14 +103,12 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
     func windowDidBecomeKey(_ notification: Notification) {
         _ = notification
         window?.makeFirstResponder(streamViewController.view)
-        if isFullscreen {
-            enableCursorCaptureIfNeeded()
-        }
+        updateRawMouseCapture()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         _ = notification
-        disableCursorCaptureIfNeeded()
+        disableRawMouseCaptureIfNeeded()
         streamViewController.handleWindowDidResignKey()
     }
 
@@ -114,14 +121,14 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
     func windowDidEnterFullScreen(_ notification: Notification) {
         _ = notification
         applyWindowSizing(isFullscreen: true)
-        enableCursorCaptureIfNeeded()
         window?.makeFirstResponder(streamViewController.view)
+        updateRawMouseCapture()
     }
 
     func windowWillExitFullScreen(_ notification: Notification) {
         _ = notification
         streamViewController.releaseAllRemoteInputs()
-        disableCursorCaptureIfNeeded()
+        disableRawMouseCaptureIfNeeded()
         streamViewController.setFullscreenPresentation(false)
     }
 
@@ -129,16 +136,77 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
         _ = notification
         applyWindowSizing(isFullscreen: false)
         window?.makeFirstResponder(streamViewController.view)
+        updateRawMouseCapture()
     }
 
     func windowWillClose(_ notification: Notification) {
         _ = notification
-        disableCursorCaptureIfNeeded()
+        disableRawMouseCaptureIfNeeded()
         streamViewController.releaseAllRemoteInputs()
     }
 }
 
 private extension StreamWindowController {
+    func updateRawMouseCapture() {
+        guard !localCommandSuppressionActive else {
+            disableRawMouseCaptureIfNeeded()
+            return
+        }
+
+        if usesRawMouse {
+            enableRawMouseCaptureIfNeeded()
+        } else {
+            disableRawMouseCaptureIfNeeded()
+        }
+    }
+
+    func setLocalCommandSuppressionActive(_ isActive: Bool) {
+        guard localCommandSuppressionActive != isActive else {
+            return
+        }
+
+        localCommandSuppressionActive = isActive
+        updateRawMouseCapture()
+    }
+
+    func enableRawMouseCaptureIfNeeded() {
+        guard !rawMouseCaptureEnabled else {
+            streamViewController.setMouseCaptureActive(true)
+            return
+        }
+
+        guard NSApp.isActive, window?.isKeyWindow == true else {
+            return
+        }
+
+        let associateResult = CGAssociateMouseAndMouseCursorPosition(0)
+        guard associateResult == .success else {
+            return
+        }
+
+        NSCursor.hide()
+        rawMouseCursorHidden = true
+        rawMouseCaptureEnabled = true
+        streamViewController.setMouseCaptureActive(true)
+    }
+
+    func disableRawMouseCaptureIfNeeded() {
+        guard rawMouseCaptureEnabled || rawMouseCursorHidden else {
+            streamViewController.setMouseCaptureActive(false)
+            return
+        }
+
+        _ = CGAssociateMouseAndMouseCursorPosition(1)
+
+        if rawMouseCursorHidden {
+            NSCursor.unhide()
+        }
+
+        rawMouseCursorHidden = false
+        rawMouseCaptureEnabled = false
+        streamViewController.setMouseCaptureActive(false)
+    }
+
     func applyWindowSizing(isFullscreen: Bool) {
         guard let window else {
             return
@@ -154,40 +222,6 @@ private extension StreamWindowController {
         window.setContentSize(contentSize)
         window.contentMinSize = contentSize
         window.contentMaxSize = contentSize
-    }
-
-    func enableCursorCaptureIfNeeded() {
-        guard !cursorCaptureEnabled else {
-            return
-        }
-
-        guard NSApp.isActive, window?.isKeyWindow == true else {
-            return
-        }
-
-        let associateResult = CGAssociateMouseAndMouseCursorPosition(0)
-        guard associateResult == .success else {
-            return
-        }
-
-        NSCursor.hide()
-        cursorHidden = true
-        cursorCaptureEnabled = true
-    }
-
-    func disableCursorCaptureIfNeeded() {
-        guard cursorCaptureEnabled || cursorHidden else {
-            return
-        }
-
-        _ = CGAssociateMouseAndMouseCursorPosition(1)
-
-        if cursorHidden {
-            NSCursor.unhide()
-        }
-
-        cursorHidden = false
-        cursorCaptureEnabled = false
     }
 
     static func streamContentSize(for sessionController: SessionController, screen: NSScreen?) -> NSSize {

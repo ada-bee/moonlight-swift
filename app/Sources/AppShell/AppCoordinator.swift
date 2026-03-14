@@ -304,7 +304,11 @@ final class AppCoordinator: ObservableObject {
                 }
 
                 await MainActor.run {
-                    self.startSession(configuration: configuration, launchesFullscreen: preferences.launchesFullscreen)
+                    self.startSession(
+                        configuration: configuration,
+                        launchesFullscreen: preferences.launchesFullscreen,
+                        usesRawMouse: preferences.usesRawMouse
+                    )
                 }
             } catch {
                 await MainActor.run {
@@ -322,6 +326,16 @@ final class AppCoordinator: ObservableObject {
         }
 
         preferences.launchesFullscreen = launchesFullscreen
+        updateLaunchPreferences(preferences, for: applicationID)
+    }
+
+    func setUsesRawMouse(_ usesRawMouse: Bool, for applicationID: Int) {
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.usesRawMouse != usesRawMouse else {
+            return
+        }
+
+        preferences.usesRawMouse = usesRawMouse
         updateLaunchPreferences(preferences, for: applicationID)
     }
 
@@ -599,7 +613,7 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func startSession(configuration: MVPConfiguration, launchesFullscreen: Bool) {
+    private func startSession(configuration: MVPConfiguration, launchesFullscreen: Bool, usesRawMouse: Bool) {
         launchInProgress = true
 
         activeErrorWindowController?.close()
@@ -611,7 +625,8 @@ final class AppCoordinator: ObservableObject {
         let errorWindowController = ErrorWindowController(sessionController: sessionController)
         let streamWindowController = StreamWindowController(
             sessionController: sessionController,
-            launchesFullscreen: launchesFullscreen
+            launchesFullscreen: launchesFullscreen,
+            usesRawMouse: usesRawMouse
         )
 
         activeSessionController = sessionController
