@@ -36,6 +36,7 @@ final class AppCoordinator: ObservableObject {
     private let pairingService: PairingService
     private let libraryClient: HostLibraryClient
     private let posterImageLoader: PosterImageLoader
+    private let wakeOnLANClient: WakeOnLANClient
     private var sessionObservers: Set<AnyCancellable> = []
     private var hasLoadedStartupState = false
     private var isLibraryPollingActive = false
@@ -56,7 +57,8 @@ final class AppCoordinator: ObservableObject {
         pairedHostStore: PairedHostStore = PairedHostStore(),
         pairingService: PairingService = PairingService(),
         libraryClient: HostLibraryClient = HostLibraryClient(),
-        posterImageLoader: PosterImageLoader = PosterImageLoader()
+        posterImageLoader: PosterImageLoader = PosterImageLoader(),
+        wakeOnLANClient: WakeOnLANClient = WakeOnLANClient()
     ) {
         self.appSupportPaths = appSupportPaths
         self.settingsStore = settingsStore
@@ -64,6 +66,7 @@ final class AppCoordinator: ObservableObject {
         self.pairingService = pairingService
         self.libraryClient = libraryClient
         self.posterImageLoader = posterImageLoader
+        self.wakeOnLANClient = wakeOnLANClient
     }
 
     func loadStartupState() {
@@ -78,6 +81,7 @@ final class AppCoordinator: ObservableObject {
             settings = try settingsStore.loadOrCreate()
             try consumePendingPairingResetIfNeeded()
             try reloadPairedHostState()
+            sendWakeOnLANOnLaunchIfConfigured()
             refreshLibrary()
             restartLibraryPollingIfNeeded()
         } catch {
@@ -365,6 +369,53 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
+    func saveWakeOnLANConfiguration(macAddress: String, broadcastAddress: String) throws {
+        guard var record = pairedHost else {
+            throw AppSettingsError.missingHost
+        }
+
+        guard let artifacts = try pairedHostStore.loadCurrentArtifacts() else {
+            throw AppSettingsError.missingHost
+        }
+
+        let normalizedConfiguration = try wakeOnLANClient.normalizedConfiguration(
+            macAddress: macAddress,
+            broadcastAddress: broadcastAddress
+        )
+
+        record.wakeOnLANConfiguration = normalizedConfiguration
+        try pairedHostStore.saveCurrent(
+            record: record,
+            clientCertificatePEM: artifacts.clientCertificatePEM,
+            clientPrivateKeyPEM: artifacts.clientPrivateKeyPEM,
+            serverCertificatePEM: artifacts.serverCertificatePEM
+        )
+        pairedHost = record
+    }
+
+    func clearWakeOnLANConfiguration() throws {
+        guard var record = pairedHost else {
+            throw AppSettingsError.missingHost
+        }
+
+        guard record.wakeOnLANConfiguration != nil else {
+            return
+        }
+
+        guard let artifacts = try pairedHostStore.loadCurrentArtifacts() else {
+            throw AppSettingsError.missingHost
+        }
+
+        record.wakeOnLANConfiguration = nil
+        try pairedHostStore.saveCurrent(
+            record: record,
+            clientCertificatePEM: artifacts.clientCertificatePEM,
+            clientPrivateKeyPEM: artifacts.clientPrivateKeyPEM,
+            serverCertificatePEM: artifacts.serverCertificatePEM
+        )
+        pairedHost = record
+    }
+
     func consumePendingPairingResetIfNeeded() throws {
         guard settings.pendingPairingResetOnNextLaunch else {
             return
@@ -395,6 +446,29 @@ final class AppCoordinator: ObservableObject {
     private func reloadPairedHostState() throws {
         pairedHost = try pairedHostStore.loadCurrentRecord()
         pairingState = .idle
+    }
+
+    private func sendWakeOnLANOnLaunchIfConfigured() {
+        guard let configuration = pairedHost?.wakeOnLANConfiguration else {
+            return
+        }
+
+        let wakeOnLANClient = wakeOnLANClient
+        Task.detached(priority: .utility) {
+            for attempt in 0..<3 {
+                do {
+                    try wakeOnLANClient.sendMagicPacket(configuration: configuration)
+                } catch {
+                    break
+                }
+
+                guard attempt < 2 else {
+                    continue
+                }
+
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }
     }
 
     private func clearPosterCacheIfNeeded() throws {

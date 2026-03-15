@@ -142,6 +142,7 @@ public final class PairingService {
             gfeVersion: gfeVersion,
             serverCodecModeSupport: serverCodecModeSupport,
             serverHashMatched: serverHashMatched,
+            wakeOnLANConfiguration: nil,
             pairedAt: Date()
         )
 

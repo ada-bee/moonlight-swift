@@ -14,6 +14,16 @@ public struct HostAuthority: Codable, Hashable, Sendable {
     }
 }
 
+public struct WakeOnLANConfiguration: Codable, Sendable, Equatable {
+    public var macAddress: String
+    public var broadcastAddress: String?
+
+    public init(macAddress: String, broadcastAddress: String?) {
+        self.macAddress = macAddress
+        self.broadcastAddress = broadcastAddress
+    }
+}
+
 public struct PairingIdentity: Sendable {
     public var uniqueID: String
     public var certificatePEM: Data
@@ -37,6 +47,7 @@ public struct PairedHostRecord: Codable, Sendable {
     public var gfeVersion: String?
     public var serverCodecModeSupport: Int
     public var serverHashMatched: Bool
+    public var wakeOnLANConfiguration: WakeOnLANConfiguration?
     public var pairedAt: Date
 
     public init(
@@ -48,6 +59,7 @@ public struct PairedHostRecord: Codable, Sendable {
         gfeVersion: String?,
         serverCodecModeSupport: Int,
         serverHashMatched: Bool,
+        wakeOnLANConfiguration: WakeOnLANConfiguration?,
         pairedAt: Date
     ) {
         self.host = host
@@ -58,6 +70,7 @@ public struct PairedHostRecord: Codable, Sendable {
         self.gfeVersion = gfeVersion
         self.serverCodecModeSupport = serverCodecModeSupport
         self.serverHashMatched = serverHashMatched
+        self.wakeOnLANConfiguration = wakeOnLANConfiguration
         self.pairedAt = pairedAt
     }
 
@@ -70,6 +83,7 @@ public struct PairedHostRecord: Codable, Sendable {
         case gfeVersion
         case serverCodecModeSupport
         case serverHashMatched
+        case wakeOnLANConfiguration
         case pairedAt
     }
 
@@ -83,6 +97,7 @@ public struct PairedHostRecord: Codable, Sendable {
         gfeVersion = try container.decodeIfPresent(String.self, forKey: .gfeVersion)
         serverCodecModeSupport = try container.decodeIfPresent(Int.self, forKey: .serverCodecModeSupport) ?? 0
         serverHashMatched = try container.decodeIfPresent(Bool.self, forKey: .serverHashMatched) ?? false
+        wakeOnLANConfiguration = try container.decodeIfPresent(WakeOnLANConfiguration.self, forKey: .wakeOnLANConfiguration)
         pairedAt = try container.decodeIfPresent(Date.self, forKey: .pairedAt) ?? .distantPast
     }
 }
