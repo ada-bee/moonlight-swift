@@ -23,6 +23,7 @@ Package.resolved
 # Logs and runtime data
 logs/
 tmp/
+.dist/
 
 # Local pairing state
 tools/.quick-pair/
