@@ -31,6 +31,9 @@ struct LibraryTileView: View {
     private static let displayModeOptions: [DisplayModeOption] = [
         .init(resolution: .init(width: 3840, height: 1600), fps: 120, label: "3840 x 1600 @ 120"),
         .init(resolution: .init(width: 2440, height: 1520), fps: 120, label: "2440 x 1520 @ 120"),
+        .init(resolution: .init(width: 2560, height: 1440), fps: 120, label: "2560 x 1440 @ 120"),
+        .init(resolution: .init(width: 1680, height: 1050), fps: 120, label: "1680 x 1050 @ 120"),
+        .init(resolution: .init(width: 1440, height: 900), fps: 60, label: "1440 x 900 @ 60"),
         .init(resolution: .init(width: 1280, height: 800), fps: 60, label: "1280 x 800 @ 60")
     ]
 
