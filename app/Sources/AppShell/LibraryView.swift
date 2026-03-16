@@ -52,6 +52,7 @@ struct LibraryView: View {
                                 application: application,
                                 launchesFullscreen: model.launchesFullscreen(for: application.id),
                                 usesRawMouse: model.usesRawMouse(for: application.id),
+                                supportedResolutions: model.supportedWindowedResolutions,
                                 selectedResolution: model.windowedResolution(for: application.id),
                                 selectedFPS: model.windowedFPS(for: application.id),
                                 playDisabled: model.launchInProgress || model.stopInProgress,
@@ -72,8 +73,11 @@ struct LibraryView: View {
                                 onRawMouseChange: { usesRawMouse in
                                     model.setUsesRawMouse(usesRawMouse, for: application.id)
                                 },
-                                onDisplayModeChange: { resolution, fps in
-                                    model.setWindowedDisplayMode(resolution, fps: fps, for: application.id)
+                                onResolutionChange: { resolution in
+                                    model.setWindowedResolution(resolution, for: application.id)
+                                },
+                                onFPSChange: { fps in
+                                    model.setWindowedFPS(fps, for: application.id)
                                 }
                             )
                         }

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreGraphics
 import Foundation
 import MoonlightCore
 
@@ -388,6 +389,31 @@ final class AppCoordinator: ObservableObject {
         updateLaunchPreferences(preferences, for: applicationID)
     }
 
+    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.windowedResolution != resolution else {
+            return
+        }
+
+        preferences.windowedResolution = resolution
+        updateLaunchPreferences(preferences, for: applicationID)
+    }
+
+    func setWindowedFPS(_ fps: Int, for applicationID: Int) {
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.windowedFPS != fps else {
+            return
+        }
+
+        preferences.windowedFPS = fps
+        updateLaunchPreferences(preferences, for: applicationID)
+    }
+
+    func saveSupportedResolutions(_ resolutions: [MVPConfiguration.Video.Resolution]) throws {
+        settings.video.supportedResolutions = AppSettings.Video.normalizedSupportedResolutions(resolutions)
+        try settingsStore.save(settings)
+    }
+
     func resetPairing() async throws {
         libraryRefreshTask?.cancel()
         libraryRefreshTask = nil
@@ -718,11 +744,32 @@ final class AppCoordinator: ObservableObject {
                     width: Int(frame.width * scale),
                     height: Int(frame.height * scale)
                 ),
-                fps: settings.video.fps
+                fps: nativeRefreshRate(for: mainScreen) ?? settings.video.fps
             )
         }
 
         return (resolution: preferences.windowedResolution, fps: preferences.windowedFPS)
+    }
+
+    private func nativeRefreshRate(for screen: NSScreen) -> Int? {
+        if screen.maximumFramesPerSecond > 0 {
+            return screen.maximumFramesPerSecond
+        }
+
+        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+
+        guard let displayMode = CGDisplayCopyDisplayMode(CGDirectDisplayID(screenNumber.uint32Value)) else {
+            return nil
+        }
+
+        let refreshRate = displayMode.refreshRate
+        guard refreshRate > 0 else {
+            return nil
+        }
+
+        return Int(refreshRate.rounded())
     }
 
     private func updateLaunchPreferences(_ preferences: AppGameLaunchPreferences, for applicationID: Int) {

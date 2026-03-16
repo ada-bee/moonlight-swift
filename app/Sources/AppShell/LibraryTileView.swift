@@ -3,19 +3,27 @@ import MoonlightCore
 import SwiftUI
 
 struct LibraryTileView: View {
-    struct DisplayModeOption: Hashable, Identifiable {
+    struct ResolutionOption: Hashable, Identifiable {
         let resolution: MVPConfiguration.Video.Resolution
-        let fps: Int
         let label: String
 
         var id: String {
-            "\(resolution.width)x\(resolution.height)@\(fps)"
+            "\(resolution.width)x\(resolution.height)"
+        }
+    }
+
+    struct FPSOption: Hashable, Identifiable {
+        let fps: Int
+
+        var id: Int {
+            fps
         }
     }
 
     let application: HostApplication
     let launchesFullscreen: Bool
     let usesRawMouse: Bool
+    let supportedResolutions: [MVPConfiguration.Video.Resolution]
     let selectedResolution: MVPConfiguration.Video.Resolution
     let selectedFPS: Int
     let playDisabled: Bool
@@ -26,15 +34,14 @@ struct LibraryTileView: View {
     let onStop: () -> Void
     let onFullscreenChange: (Bool) -> Void
     let onRawMouseChange: (Bool) -> Void
-    let onDisplayModeChange: (MVPConfiguration.Video.Resolution, Int) -> Void
+    let onResolutionChange: (MVPConfiguration.Video.Resolution) -> Void
+    let onFPSChange: (Int) -> Void
 
-    private static let displayModeOptions: [DisplayModeOption] = [
-        .init(resolution: .init(width: 3840, height: 1600), fps: 120, label: "3840 x 1600 @ 120"),
-        .init(resolution: .init(width: 2440, height: 1520), fps: 120, label: "2440 x 1520 @ 120"),
-        .init(resolution: .init(width: 2560, height: 1440), fps: 120, label: "2560 x 1440 @ 120"),
-        .init(resolution: .init(width: 1680, height: 1050), fps: 120, label: "1680 x 1050 @ 120"),
-        .init(resolution: .init(width: 1440, height: 900), fps: 60, label: "1440 x 900 @ 60"),
-        .init(resolution: .init(width: 1280, height: 800), fps: 60, label: "1280 x 800 @ 60")
+    private static let fpsOptions: [FPSOption] = [
+        .init(fps: 30),
+        .init(fps: 60),
+        .init(fps: 90),
+        .init(fps: 120)
     ]
 
     var body: some View {
@@ -76,20 +83,41 @@ struct LibraryTileView: View {
                     .toggleStyle(.checkbox)
                     .fixedSize()
 
-                    Picker("Display Mode", selection: displayModeBinding) {
-                        ForEach(Self.displayModeOptions) { option in
+                    Picker("Resolution", selection: resolutionBinding) {
+                        ForEach(resolutionOptions) { option in
                             Text(option.label)
                                 .tag(option)
                         }
 
-                        if Self.displayModeOptions.contains(selectedDisplayMode) == false {
-                            Text(selectedDisplayMode.label)
-                                .tag(selectedDisplayMode)
+                        if resolutionOptions.contains(selectedResolutionOption) == false {
+                            Text(selectedResolutionOption.label)
+                                .tag(selectedResolutionOption)
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 190)
+                    .frame(width: 148)
                     .disabled(launchesFullscreen)
+
+                    Picker("Refresh Rate", selection: fpsBinding) {
+                        ForEach(Self.fpsOptions) { option in
+                            Text("\(option.fps) Hz")
+                                .tag(option)
+                        }
+
+                        if Self.fpsOptions.contains(selectedFPSOption) == false {
+                            Text("\(selectedFPSOption.fps) Hz")
+                                .tag(selectedFPSOption)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 108)
+                    .disabled(launchesFullscreen)
+                }
+
+                if launchesFullscreen {
+                    Text("Fullscreen uses the display's native resolution and refresh rate.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -173,21 +201,42 @@ struct LibraryTileView: View {
         )
     }
 
-    private var selectedDisplayMode: DisplayModeOption {
-        Self.displayModeOptions.first(where: {
-            $0.resolution == selectedResolution && $0.fps == selectedFPS
+    private var resolutionOptions: [ResolutionOption] {
+        supportedResolutions.map {
+            ResolutionOption(
+                resolution: $0,
+                label: "\($0.width) x \($0.height)"
+            )
+        }
+    }
+
+    private var selectedResolutionOption: ResolutionOption {
+        resolutionOptions.first(where: {
+            $0.resolution == selectedResolution
         }) ?? .init(
             resolution: selectedResolution,
-            fps: selectedFPS,
-            label: "\(selectedResolution.width) x \(selectedResolution.height) @ \(selectedFPS)"
+            label: "\(selectedResolution.width) x \(selectedResolution.height)"
         )
     }
 
-    private var displayModeBinding: Binding<DisplayModeOption> {
+    private var selectedFPSOption: FPSOption {
+        Self.fpsOptions.first(where: { $0.fps == selectedFPS }) ?? .init(fps: selectedFPS)
+    }
+
+    private var resolutionBinding: Binding<ResolutionOption> {
         Binding(
-            get: { selectedDisplayMode },
+            get: { selectedResolutionOption },
             set: { newValue in
-                onDisplayModeChange(newValue.resolution, newValue.fps)
+                onResolutionChange(newValue.resolution)
+            }
+        )
+    }
+
+    private var fpsBinding: Binding<FPSOption> {
+        Binding(
+            get: { selectedFPSOption },
+            set: { newValue in
+                onFPSChange(newValue.fps)
             }
         )
     }

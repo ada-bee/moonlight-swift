@@ -91,6 +91,18 @@ final class MainWindowModel: ObservableObject {
         coordinator.setWindowedDisplayMode(resolution, fps: fps, for: applicationID)
     }
 
+    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
+        coordinator.setWindowedResolution(resolution, for: applicationID)
+    }
+
+    func setWindowedFPS(_ fps: Int, for applicationID: Int) {
+        coordinator.setWindowedFPS(fps, for: applicationID)
+    }
+
+    var supportedWindowedResolutions: [MVPConfiguration.Video.Resolution] {
+        coordinator.settings.video.supportedResolutions
+    }
+
     var mainContentState: MainContentState {
         if !hasCompletedStartupLoad {
             return .loading

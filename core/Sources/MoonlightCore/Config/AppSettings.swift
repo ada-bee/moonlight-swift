@@ -41,19 +41,89 @@ public struct AppSettings: Codable, Sendable {
         public var fps: Int
         public var bitrateKbps: Int
         public var packetSize: Int
+        public var supportedResolutions: [MVPConfiguration.Video.Resolution]
 
         public init(
             width: Int,
             height: Int,
             fps: Int,
             bitrateKbps: Int,
-            packetSize: Int
+            packetSize: Int,
+            supportedResolutions: [MVPConfiguration.Video.Resolution]
         ) {
             self.width = width
             self.height = height
             self.fps = fps
             self.bitrateKbps = bitrateKbps
             self.packetSize = packetSize
+            self.supportedResolutions = Self.normalizedSupportedResolutions(supportedResolutions)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case width
+            case height
+            case fps
+            case bitrateKbps
+            case packetSize
+            case supportedResolutions
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            width = try container.decodeIfPresent(Int.self, forKey: .width) ?? MVPConfiguration.fallback.video.resolution.width
+            height = try container.decodeIfPresent(Int.self, forKey: .height) ?? MVPConfiguration.fallback.video.resolution.height
+            fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? MVPConfiguration.fallback.video.fps
+            bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? MVPConfiguration.fallback.video.bitrateKbps
+            packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? MVPConfiguration.fallback.video.packetSize
+
+            let decodedSupportedResolutions = try container.decodeIfPresent([MVPConfiguration.Video.Resolution].self, forKey: .supportedResolutions)
+                ?? Self.defaultSupportedResolutions
+            supportedResolutions = Self.normalizedSupportedResolutions(decodedSupportedResolutions)
+        }
+
+        public static let defaultSupportedResolutions: [MVPConfiguration.Video.Resolution] = [
+            .init(width: 3840, height: 2160),
+            .init(width: 2560, height: 1600),
+            .init(width: 2560, height: 1440),
+            .init(width: 1920, height: 1200),
+            .init(width: 1920, height: 1080),
+            .init(width: 1680, height: 1050),
+            .init(width: 1440, height: 900),
+            .init(width: 1280, height: 800)
+        ]
+
+        public static func normalizedSupportedResolutions(
+            _ resolutions: [MVPConfiguration.Video.Resolution]
+        ) -> [MVPConfiguration.Video.Resolution] {
+            let filtered = resolutions.filter(Self.isSupportedResolution)
+            let unique = Array(Set(filtered))
+            let sorted = unique.sorted(by: Self.sortsBefore)
+            return sorted.isEmpty ? defaultSupportedResolutions : sorted
+        }
+
+        public static func isSupportedResolution(_ resolution: MVPConfiguration.Video.Resolution) -> Bool {
+            resolution.width > 0
+                && resolution.height > 0
+                && resolution.width.isMultiple(of: 2)
+                && resolution.height.isMultiple(of: 2)
+        }
+
+        private static func sortsBefore(
+            _ lhs: MVPConfiguration.Video.Resolution,
+            _ rhs: MVPConfiguration.Video.Resolution
+        ) -> Bool {
+            let lhsPixels = lhs.width * lhs.height
+            let rhsPixels = rhs.width * rhs.height
+
+            if lhsPixels != rhsPixels {
+                return lhsPixels > rhsPixels
+            }
+
+            if lhs.width != rhs.width {
+                return lhs.width > rhs.width
+            }
+
+            return lhs.height > rhs.height
         }
     }
 
@@ -98,7 +168,8 @@ public extension AppSettings {
             height: MVPConfiguration.fallback.video.resolution.height,
             fps: MVPConfiguration.fallback.video.fps,
             bitrateKbps: MVPConfiguration.fallback.video.bitrateKbps,
-            packetSize: MVPConfiguration.fallback.video.packetSize
+            packetSize: MVPConfiguration.fallback.video.packetSize,
+            supportedResolutions: AppSettings.Video.defaultSupportedResolutions
         ),
         perGameLaunchPreferences: [:],
         pendingPairingResetOnNextLaunch: false
