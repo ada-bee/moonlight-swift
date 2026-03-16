@@ -31,8 +31,9 @@ struct AppMain: App {
 
         Settings {
             SettingsView(coordinator: coordinator)
-                .frame(width: 420)
+                .frame(minWidth: 520, minHeight: 680)
                 .padding(24)
         }
+        .defaultSize(width: 560, height: 760)
     }
 }

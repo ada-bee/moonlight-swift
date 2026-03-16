@@ -47,7 +47,6 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.center()
 
         super.init(window: window)
 

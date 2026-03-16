@@ -4,13 +4,23 @@ import MoonlightCore
 
 @MainActor
 final class MainWindowModel: ObservableObject {
+    enum MainContentState: Equatable {
+        case loading
+        case library
+        case noHostConfigured
+        case connectionIssue
+    }
+
     @Published var hostInput = ""
-    @Published private(set) var isPaired = false
+    @Published private(set) var hasPairedHost = false
+    @Published private(set) var hasConfiguredHost = false
+    @Published private(set) var hasCompletedStartupLoad = false
     @Published private(set) var pairingInProgress = false
     @Published private(set) var pairingStatusText: String?
     @Published private(set) var pairingPIN: String?
     @Published private(set) var pairingError: String?
     @Published private(set) var libraryLoading = false
+    @Published private(set) var hasLoadedLibrary = false
     @Published private(set) var libraryError: String?
     @Published private(set) var applications: [HostApplication] = []
     @Published private(set) var launchInProgress = false
@@ -35,6 +45,10 @@ final class MainWindowModel: ObservableObject {
 
     func refreshLibrary() {
         coordinator.refreshLibrary()
+    }
+
+    func retryConnection() {
+        coordinator.retryConnection()
     }
 
     func launch(_ application: HostApplication) {
@@ -77,6 +91,26 @@ final class MainWindowModel: ObservableObject {
         coordinator.setWindowedDisplayMode(resolution, fps: fps, for: applicationID)
     }
 
+    var mainContentState: MainContentState {
+        if !hasCompletedStartupLoad {
+            return .loading
+        }
+
+        if !hasConfiguredHost {
+            return .noHostConfigured
+        }
+
+        if pairingInProgress || libraryLoading {
+            return .loading
+        }
+
+        if hasLoadedLibrary {
+            return .library
+        }
+
+        return .connectionIssue
+    }
+
     private func bindCoordinator() {
         coordinator.$settings
             .receive(on: DispatchQueue.main)
@@ -85,11 +119,8 @@ final class MainWindowModel: ObservableObject {
                     return
                 }
 
-                if let host = settings.host {
-                    self.hostInput = host.displayString
-                } else if self.hostInput.isEmpty {
-                    self.hostInput = ""
-                }
+                self.hasConfiguredHost = settings.host != nil
+                self.hostInput = settings.host?.displayString ?? ""
 
                 var mappedPreferences: [Int: AppGameLaunchPreferences] = [:]
                 for (applicationID, preferences) in settings.perGameLaunchPreferences {
@@ -104,9 +135,13 @@ final class MainWindowModel: ObservableObject {
         coordinator.$pairedHost
             .receive(on: DispatchQueue.main)
             .sink { [weak self] record in
-                self?.isPaired = record != nil
+                self?.hasPairedHost = record != nil
             }
             .store(in: &cancellables)
+
+        coordinator.$hasCompletedStartupLoad
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$hasCompletedStartupLoad)
 
         coordinator.$pairingState
             .receive(on: DispatchQueue.main)
@@ -145,18 +180,22 @@ final class MainWindowModel: ObservableObject {
                 switch state {
                 case .idle:
                     self.libraryLoading = false
+                    self.hasLoadedLibrary = false
                     self.libraryError = nil
                     self.applications = []
                 case .loading:
                     self.libraryLoading = true
+                    self.hasLoadedLibrary = false
                     self.libraryError = nil
                     self.applications = []
                 case let .loaded(applications):
                     self.libraryLoading = false
+                    self.hasLoadedLibrary = true
                     self.libraryError = nil
                     self.applications = applications
                 case let .failed(message):
                     self.libraryLoading = false
+                    self.hasLoadedLibrary = false
                     self.libraryError = message
                     self.applications = []
                 }

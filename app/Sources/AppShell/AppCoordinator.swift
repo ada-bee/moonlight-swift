@@ -29,6 +29,7 @@ final class AppCoordinator: ObservableObject {
     @Published private(set) var stopInProgress = false
     @Published private(set) var libraryActionError: String?
     @Published private(set) var isLibraryStale = false
+    @Published private(set) var hasCompletedStartupLoad = false
 
     private let appSupportPaths: AppSupportPaths
     private let settingsStore: AppSettingsStore
@@ -75,6 +76,7 @@ final class AppCoordinator: ObservableObject {
         }
 
         hasLoadedStartupState = true
+        defer { hasCompletedStartupLoad = true }
 
         do {
             _ = try appSupportPaths.prepare()
@@ -93,8 +95,6 @@ final class AppCoordinator: ObservableObject {
     func startPairing(hostInput: String) {
         do {
             let authority = try HostAuthority(parsing: hostInput)
-            settings.host = authority
-            try settingsStore.save(settings)
             let pin = Self.randomPIN()
             pairingState = .inProgress(status: "Connecting to \(authority.displayString)", pin: pin)
 
@@ -108,6 +108,7 @@ final class AppCoordinator: ObservableObject {
                         host: authority,
                         deviceName: "GameStream",
                         pin: pin,
+                        skipVerifyCheck: true,
                         progress: { [weak self] status in
                             await MainActor.run {
                                 guard let self else {
@@ -119,9 +120,19 @@ final class AppCoordinator: ObservableObject {
                     )
 
                     try await MainActor.run {
-                        try self.pairedHostStore.save(result: result)
-                        self.pairedHost = result.record
-                        self.settings.host = result.record.host
+                        var record = result.record
+                        if self.pairedHost?.host == record.host {
+                            record.wakeOnLANConfiguration = self.pairedHost?.wakeOnLANConfiguration
+                        }
+
+                        try self.pairedHostStore.saveCurrent(
+                            record: record,
+                            clientCertificatePEM: result.identity.certificatePEM,
+                            clientPrivateKeyPEM: result.identity.privateKeyPEM,
+                            serverCertificatePEM: result.serverCertificatePEM
+                        )
+                        self.pairedHost = record
+                        self.settings.host = record.host
                         try self.settingsStore.save(self.settings)
                         self.pairingState = .idle
                         self.refreshLibrary(force: true)
@@ -144,6 +155,16 @@ final class AppCoordinator: ObservableObject {
 
     func refreshLibrary(force: Bool) {
         refreshLibrary(force: force, showLoadingIndicator: true)
+    }
+
+    func retryConnection() {
+        guard settings.host != nil else {
+            pairingState = .idle
+            libraryState = .idle
+            return
+        }
+
+        refreshLibrary(force: true)
     }
 
     func setLibraryPollingActive(_ isActive: Bool) {
@@ -238,6 +259,10 @@ final class AppCoordinator: ObservableObject {
                     }
                 }
 
+                guard !Task.isCancelled else {
+                    return
+                }
+
                 await MainActor.run {
                     self.finishLibraryRefresh(
                         result: .success((applications, runningStatus)),
@@ -246,6 +271,10 @@ final class AppCoordinator: ObservableObject {
                     )
                 }
             } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+
                 await MainActor.run {
                     self.finishLibraryRefresh(
                         result: .failure(error),
@@ -359,14 +388,29 @@ final class AppCoordinator: ObservableObject {
         updateLaunchPreferences(preferences, for: applicationID)
     }
 
-    func markPairingResetOnNextLaunch() {
-        settings.pendingPairingResetOnNextLaunch = true
+    func resetPairing() async throws {
+        libraryRefreshTask?.cancel()
+        libraryRefreshTask = nil
+        queuedLibraryRefreshForce = false
+        queuedLibraryRefreshShowsLoading = false
 
-        do {
-            try settingsStore.save(settings)
-        } catch {
-            pairingState = .failed(error.localizedDescription)
-        }
+        stopLibraryPolling()
+        await teardownActiveSession(closeErrorWindow: true)
+
+        try pairedHostStore.removeCurrent()
+        try clearPosterCacheIfNeeded()
+
+        settings.host = nil
+        settings.pendingPairingResetOnNextLaunch = false
+        try settingsStore.save(settings)
+
+        pairedHost = nil
+        pairingState = .idle
+        libraryState = .idle
+        launchInProgress = false
+        stopInProgress = false
+        libraryActionError = nil
+        isLibraryStale = false
     }
 
     func saveWakeOnLANConfiguration(macAddress: String, broadcastAddress: String) throws {
