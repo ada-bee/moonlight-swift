@@ -18,7 +18,7 @@ Package.resolved
 # Python / local tooling
 .ruff_cache/
 .envrc
-.opencode
+.opencode/
 
 # Logs and runtime data
 logs/
