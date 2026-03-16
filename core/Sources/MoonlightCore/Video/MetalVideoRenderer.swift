@@ -798,7 +798,8 @@ private extension MetalVideoRenderer {
             return shaderLibrary
         }
 
-        if let bundledLibrary = try? device.makeDefaultLibrary(bundle: .module) {
+        if let resourceBundle = PackageResourceBundle.coreTarget,
+           let bundledLibrary = try? device.makeDefaultLibrary(bundle: resourceBundle) {
             return bundledLibrary
         }
 
@@ -811,11 +812,11 @@ private extension MetalVideoRenderer {
     }
 
     func shaderSourceURL() -> URL? {
-        if let shaderURL = Bundle.module.url(forResource: "MetalRendererShaders", withExtension: "metal") {
+        if let shaderURL = PackageResourceBundle.coreTarget?.url(forResource: "MetalRendererShaders", withExtension: "metal") {
             return shaderURL
         }
 
-        return Bundle.module.url(forResource: "MetalRendererShaders", withExtension: "metal", subdirectory: "Video")
+        return PackageResourceBundle.coreTarget?.url(forResource: "MetalRendererShaders", withExtension: "metal", subdirectory: "Video")
     }
 
     @discardableResult

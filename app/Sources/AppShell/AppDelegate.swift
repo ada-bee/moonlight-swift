@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
 
-        if let iconURL = Bundle.module.url(forResource: "GameStream", withExtension: "icns"),
+        if let iconURL = Bundle.main.url(forResource: "GameStream", withExtension: "icns"),
            let iconImage = NSImage(contentsOf: iconURL) {
             NSApp.applicationIconImage = iconImage
         }

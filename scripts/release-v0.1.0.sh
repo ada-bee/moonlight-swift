@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-0.1.0}"
-BUILD_NUMBER="${BUILD_NUMBER:-1}"
+VERSION="${VERSION:-0.1.1}"
+BUILD_NUMBER="${BUILD_NUMBER:-2}"
 TEAM_ID="${TEAM_ID:-TH6BF55QH3}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-moonlight-notary}"
 APP_NAME="GameStream"
