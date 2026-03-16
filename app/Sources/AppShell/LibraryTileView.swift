@@ -45,16 +45,16 @@ struct LibraryTileView: View {
     ]
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            thumbnail
-                .frame(width: 208, height: 117)
+        HStack(alignment: .center, spacing: 20) {
+            poster
+                .frame(width: 78, height: 117)
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center, spacing: 10) {
                     Text(application.name)
                         .font(.headline)
                         .foregroundStyle(.primary)
-                        .lineLimit(1)
+                        .lineLimit(2)
 
                     if application.isRunning {
                         runningBadge
@@ -136,7 +136,7 @@ struct LibraryTileView: View {
     }
 
     @ViewBuilder
-    private var thumbnail: some View {
+    private var poster: some View {
         if let posterURL = application.posterURL,
            let nsImage = NSImage(contentsOf: posterURL)
         {
@@ -150,7 +150,7 @@ struct LibraryTileView: View {
                     .fill(Color(nsColor: .windowBackgroundColor))
 
                 Image(systemName: "play.tv")
-                    .font(.system(size: 34, weight: .medium))
+                    .font(.system(size: 28, weight: .medium))
                     .foregroundStyle(.secondary)
             }
         }
