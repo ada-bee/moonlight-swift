@@ -103,7 +103,7 @@ public final class SessionController: NSObject, ObservableObject {
         lastErrorDescription = nil
         stageName = "Connecting"
         state = .connecting
-        beginStreamingActivity(reason: "Establishing Moonlight stream")
+        beginStreamingActivity(reason: "Establishing stream connection...")
 
         let bridge = self.bridge
         DispatchQueue.global(qos: .userInitiated).async {

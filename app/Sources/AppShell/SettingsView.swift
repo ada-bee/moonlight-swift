@@ -100,7 +100,7 @@ struct SettingsView: View {
         do {
             try coordinator.saveWakeOnLANConfiguration(macAddress: macAddress, broadcastAddress: broadcastAddress)
             loadWakeOnLANConfiguration()
-            feedbackMessage = "Wake-on-LAN will be sent when Moonlight launches."
+            feedbackMessage = "Wake-on-LAN will be sent when GameStream launches."
             feedbackIsError = false
         } catch {
             feedbackMessage = error.localizedDescription

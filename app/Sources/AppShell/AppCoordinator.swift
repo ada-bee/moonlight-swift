@@ -106,7 +106,7 @@ final class AppCoordinator: ObservableObject {
                 do {
                     let result = try await self.pairingService.pair(
                         host: authority,
-                        deviceName: "Moonlight",
+                        deviceName: "GameStream",
                         pin: pin,
                         progress: { [weak self] status in
                             await MainActor.run {

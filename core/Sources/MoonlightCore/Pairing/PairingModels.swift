@@ -91,7 +91,7 @@ public struct PairedHostRecord: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         host = try container.decode(HostAuthority.self, forKey: .host)
         httpsPort = try container.decodeIfPresent(Int.self, forKey: .httpsPort) ?? max(host.port - 5, 1)
-        deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName) ?? "Moonlight"
+        deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName) ?? "GameStream"
         clientUniqueID = try container.decode(String.self, forKey: .clientUniqueID)
         appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
         gfeVersion = try container.decodeIfPresent(String.self, forKey: .gfeVersion)

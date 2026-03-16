@@ -14,7 +14,7 @@ public struct AppSupportPaths {
                 ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
                     .appendingPathComponent("Library/Application Support", isDirectory: true)
             self.rootDirectoryURL = applicationSupportDirectory
-                .appendingPathComponent("Moonlight", isDirectory: true)
+                .appendingPathComponent("GameStream", isDirectory: true)
                 .standardizedFileURL
         }
     }

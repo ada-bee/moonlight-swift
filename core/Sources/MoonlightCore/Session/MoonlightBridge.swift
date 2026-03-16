@@ -21,7 +21,7 @@ public enum MoonlightBridgeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .connectionFailed(code):
-            return "Moonlight connection failed with code \(code)."
+            return "Stream connection failed with code \(code)."
         }
     }
 }

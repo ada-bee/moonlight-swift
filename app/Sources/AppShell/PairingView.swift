@@ -6,7 +6,7 @@ struct PairingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Moonlight")
+                Text("GameStream")
                     .font(.largeTitle)
                     .foregroundStyle(.primary)
 

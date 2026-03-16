@@ -18,7 +18,7 @@ let package = Package(
         .macOS(.v26)
     ],
     products: [
-        .executable(name: "Moonlight", targets: ["Moonlight"]),
+        .executable(name: "GameStream", targets: ["Moonlight"]),
         .library(name: "MoonlightCore", targets: ["MoonlightCore"])
     ],
     targets: [
@@ -130,7 +130,18 @@ let package = Package(
         .executableTarget(
             name: "Moonlight",
             dependencies: ["MoonlightCore"],
-            path: "app/Sources/AppShell"
+            path: "app/Sources/AppShell",
+            resources: [
+                .copy("Resources/GameStream.icns")
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "app/Sources/AppShell/Resources/Info.plist"
+                ])
+            ]
         )
     ]
 )
