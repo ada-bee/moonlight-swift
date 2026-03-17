@@ -54,6 +54,7 @@ final class AppCoordinator: ObservableObject {
     private let libraryClient: HostLibraryClient
     private let posterImageLoader: PosterImageLoader
     private let wakeOnLANClient: WakeOnLANClient
+    private weak var libraryWindow: NSWindow?
     private var sessionObservers: Set<AnyCancellable> = []
     private var hasLoadedStartupState = false
     private var isLibraryPollingActive = false
@@ -62,6 +63,8 @@ final class AppCoordinator: ObservableObject {
     private var queuedLibraryRefreshForce = false
     private var queuedLibraryRefreshShowsLoading = false
     private var pollsSinceLastBackgroundRefresh = 0
+    private var activeStreamChainDidStart = false
+    private var activeStreamChainAutoHidLibraryWindow = false
 
     private enum LibraryPollingDefaults {
         static let intervalNanoseconds: UInt64 = 3_000_000_000
@@ -210,7 +213,7 @@ final class AppCoordinator: ObservableObject {
 
             do {
                 if self.activeSessionController?.configuration.host.appID == application.id {
-                    await self.teardownActiveSession(closeErrorWindow: true)
+                    await self.teardownActiveSession(closeErrorWindow: true, endActiveStreamChain: true)
                 }
 
                 try await self.stopHostApplication()
@@ -236,7 +239,7 @@ final class AppCoordinator: ObservableObject {
         libraryActionError = nil
 
         Task { [weak self] in
-            await self?.teardownActiveSession(closeErrorWindow: true)
+            await self?.teardownActiveSession(closeErrorWindow: true, endActiveStreamChain: true)
         }
     }
 
@@ -433,7 +436,7 @@ final class AppCoordinator: ObservableObject {
                 }
 
                 if await MainActor.run(body: { self.activeSessionController != nil }) {
-                    await self.teardownActiveSession(closeErrorWindow: true)
+                    await self.teardownActiveSession(closeErrorWindow: true, endActiveStreamChain: false)
                 }
 
                 if runningApplicationID != 0, runningApplicationID != app.id {
@@ -457,7 +460,8 @@ final class AppCoordinator: ObservableObject {
                     self.startSession(
                         configuration: configuration,
                         launchesFullscreen: preferences.launchesFullscreen,
-                        usesRawMouse: preferences.usesRawMouse
+                        usesRawMouse: preferences.usesRawMouse,
+                        continuingActiveStreamChain: false
                     )
                 }
             } catch {
@@ -497,6 +501,32 @@ final class AppCoordinator: ObservableObject {
         try settingsStore.save(settings)
     }
 
+    func saveLibraryWindowBehavior(
+        closesOnStreamStart: Bool,
+        reopensOnStreamStop: Bool
+    ) throws {
+        var updatedSettings = settings
+        updatedSettings.closesLibraryWindowOnStreamStart = closesOnStreamStart
+        updatedSettings.reopensLibraryWindowOnStreamStop = closesOnStreamStart && reopensOnStreamStop
+        try settingsStore.save(updatedSettings)
+        settings = updatedSettings
+    }
+
+    func setLibraryWindow(_ window: NSWindow?) {
+        libraryWindow = window
+    }
+
+    @discardableResult
+    func reopenLibraryWindowIfAvailable() -> Bool {
+        guard let libraryWindow else {
+            return false
+        }
+
+        libraryWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return true
+    }
+
     func resetPairing() async throws {
         libraryRefreshTask?.cancel()
         libraryRefreshTask = nil
@@ -504,7 +534,7 @@ final class AppCoordinator: ObservableObject {
         queuedLibraryRefreshShowsLoading = false
 
         stopLibraryPolling()
-        await teardownActiveSession(closeErrorWindow: true)
+        await teardownActiveSession(closeErrorWindow: true, endActiveStreamChain: true)
 
         try pairedHostStore.removeCurrent()
         try clearPosterCacheIfNeeded()
@@ -592,7 +622,7 @@ final class AppCoordinator: ObservableObject {
 
     func stopActiveSession() {
         Task { [weak self] in
-            await self?.teardownActiveSession(closeErrorWindow: true)
+            await self?.teardownActiveSession(closeErrorWindow: true, endActiveStreamChain: false)
         }
     }
 
@@ -651,11 +681,16 @@ final class AppCoordinator: ObservableObject {
                     break
                 case .streaming, .failed:
                     self.launchInProgress = false
+                    if state == .streaming {
+                        self.noteActiveStreamDidStartIfNeeded()
+                    }
+
                     if state == .failed {
                         self.activeSessionController = nil
                         self.activeStreamMouseMode = nil
                         self.activeStreamWindowController?.close()
                         self.activeStreamWindowController = nil
+                        self.finishActiveStreamChainIfNeeded()
                     }
                 case .stopped:
                     self.launchInProgress = false
@@ -664,6 +699,7 @@ final class AppCoordinator: ObservableObject {
                     self.activeStreamMouseMode = nil
                     self.activeStreamWindowController?.close()
                     self.activeStreamWindowController = nil
+                    self.finishActiveStreamChainIfNeeded()
                 }
             }
             .store(in: &sessionObservers)
@@ -896,7 +932,7 @@ final class AppCoordinator: ObservableObject {
                     self.launchVideoMode(for: preferences)
                 }
 
-                await self.teardownActiveSession(closeErrorWindow: true)
+                await self.teardownActiveSession(closeErrorWindow: true, endActiveStreamChain: false)
 
                 let runningApplicationID = await self.currentRunningApplicationIDForLaunch()
                 guard runningApplicationID == applicationID else {
@@ -917,7 +953,8 @@ final class AppCoordinator: ObservableObject {
                     self.startSession(
                         configuration: configuration,
                         launchesFullscreen: preferences.launchesFullscreen,
-                        usesRawMouse: preferences.usesRawMouse
+                        usesRawMouse: preferences.usesRawMouse,
+                        continuingActiveStreamChain: true
                     )
                 }
             } catch {
@@ -929,8 +966,18 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func startSession(configuration: MVPConfiguration, launchesFullscreen: Bool, usesRawMouse: Bool) {
+    private func startSession(
+        configuration: MVPConfiguration,
+        launchesFullscreen: Bool,
+        usesRawMouse: Bool,
+        continuingActiveStreamChain: Bool
+    ) {
         launchInProgress = true
+
+        if !continuingActiveStreamChain {
+            activeStreamChainDidStart = false
+            activeStreamChainAutoHidLibraryWindow = false
+        }
 
         activeErrorWindowController?.close()
         activeStreamWindowController?.close()
@@ -977,7 +1024,7 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func teardownActiveSession(closeErrorWindow: Bool) async {
+    private func teardownActiveSession(closeErrorWindow: Bool, endActiveStreamChain: Bool) async {
         let sessionController = activeSessionController
         let streamWindowController = activeStreamWindowController
         let errorWindowController = activeErrorWindowController
@@ -1006,9 +1053,47 @@ final class AppCoordinator: ObservableObject {
                 continuation.resume()
             }
         }
+
+        if endActiveStreamChain {
+            finishActiveStreamChainIfNeeded()
+        }
     }
 
     private static func randomPIN() -> String {
         String(format: "%04d", Int.random(in: 0...9999))
+    }
+
+    private func noteActiveStreamDidStartIfNeeded() {
+        guard !activeStreamChainDidStart else {
+            return
+        }
+
+        activeStreamChainDidStart = true
+
+        guard settings.closesLibraryWindowOnStreamStart,
+              !activeStreamChainAutoHidLibraryWindow,
+              let libraryWindow,
+              libraryWindow.isVisible
+        else {
+            return
+        }
+
+        activeStreamChainAutoHidLibraryWindow = true
+        libraryWindow.orderOut(nil)
+    }
+
+    private func finishActiveStreamChainIfNeeded() {
+        let shouldAttemptReopen = activeStreamChainDidStart
+            && activeStreamChainAutoHidLibraryWindow
+            && settings.reopensLibraryWindowOnStreamStop
+
+        activeStreamChainDidStart = false
+        activeStreamChainAutoHidLibraryWindow = false
+
+        guard shouldAttemptReopen else {
+            return
+        }
+
+        _ = reopenLibraryWindowIfAvailable()
     }
 }

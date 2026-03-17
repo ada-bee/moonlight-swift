@@ -16,11 +16,16 @@ struct SettingsView: View {
     @State private var selectedResolutionID: String?
     @State private var videoFeedbackMessage: String?
     @State private var videoFeedbackIsError = false
+    @State private var closeLibraryWindowOnStreamStart = false
+    @State private var reopenLibraryWindowOnStreamStop = false
+    @State private var libraryWindowBehaviorFeedbackMessage: String?
+    @State private var libraryWindowBehaviorFeedbackIsError = false
     @State private var resetInProgress = false
 
     var body: some View {
         Form {
             Section("Streaming") {
+                libraryWindowBehaviorSection
                 supportedResolutionsSection
             }
 
@@ -37,6 +42,7 @@ struct SettingsView: View {
             hostInput = coordinator.settings.host?.displayString ?? ""
             clearHostFeedbackIfNeeded()
             syncSelectedResolutionIfNeeded()
+            loadLibraryWindowBehavior()
         }
         .onReceive(coordinator.$pairedHost) { _ in
             loadWakeOnLANConfiguration()
@@ -186,6 +192,23 @@ struct SettingsView: View {
         }
     }
 
+    private var libraryWindowBehaviorSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Automatically hide the library window once a stream is active, then optionally bring it back after that stream ends.")
+                .foregroundStyle(.secondary)
+
+            Toggle("Close library window when stream starts.", isOn: closeLibraryWindowOnStreamStartBinding)
+
+            Toggle("Reopen library window when stream stops.", isOn: reopenLibraryWindowOnStreamStopBinding)
+                .disabled(!closeLibraryWindowOnStreamStart)
+
+            if let libraryWindowBehaviorFeedbackMessage {
+                Text(libraryWindowBehaviorFeedbackMessage)
+                    .foregroundStyle(libraryWindowBehaviorFeedbackIsError ? Color(nsColor: .systemRed) : .secondary)
+            }
+        }
+    }
+
     @ViewBuilder
     private var pairedHostSummary: some View {
         if let pairedHost = coordinator.pairedHost {
@@ -265,6 +288,29 @@ struct SettingsView: View {
         coordinator.pairingState.isInProgress ? "Pairing..." : (hasPairedHost ? "Change Host" : "Start Pairing")
     }
 
+    private var closeLibraryWindowOnStreamStartBinding: Binding<Bool> {
+        Binding(
+            get: { closeLibraryWindowOnStreamStart },
+            set: { newValue in
+                closeLibraryWindowOnStreamStart = newValue
+                if !newValue {
+                    reopenLibraryWindowOnStreamStop = false
+                }
+                saveLibraryWindowBehavior()
+            }
+        )
+    }
+
+    private var reopenLibraryWindowOnStreamStopBinding: Binding<Bool> {
+        Binding(
+            get: { reopenLibraryWindowOnStreamStop },
+            set: { newValue in
+                reopenLibraryWindowOnStreamStop = closeLibraryWindowOnStreamStart && newValue
+                saveLibraryWindowBehavior()
+            }
+        )
+    }
+
     private var pairingStatusText: String? {
         if case let .inProgress(status, _) = coordinator.pairingState {
             return status
@@ -286,6 +332,12 @@ struct SettingsView: View {
         loadWakeOnLANConfiguration()
         clearHostFeedbackIfNeeded()
         syncSelectedResolutionIfNeeded()
+        loadLibraryWindowBehavior()
+    }
+
+    private func loadLibraryWindowBehavior() {
+        closeLibraryWindowOnStreamStart = coordinator.settings.closesLibraryWindowOnStreamStart
+        reopenLibraryWindowOnStreamStop = coordinator.settings.reopensLibraryWindowOnStreamStop
     }
 
     private func clearHostFeedbackIfNeeded() {
@@ -312,6 +364,24 @@ struct SettingsView: View {
 
         wakeOnLANFeedbackMessage = nil
         wakeOnLANFeedbackIsError = false
+    }
+
+    private func saveLibraryWindowBehavior() {
+        do {
+            try coordinator.saveLibraryWindowBehavior(
+                closesOnStreamStart: closeLibraryWindowOnStreamStart,
+                reopensOnStreamStop: reopenLibraryWindowOnStreamStop
+            )
+            loadLibraryWindowBehavior()
+            libraryWindowBehaviorFeedbackMessage = closeLibraryWindowOnStreamStart
+                ? "Library window behavior updated."
+                : "Library window auto-close disabled."
+            libraryWindowBehaviorFeedbackIsError = false
+        } catch {
+            loadLibraryWindowBehavior()
+            libraryWindowBehaviorFeedbackMessage = error.localizedDescription
+            libraryWindowBehaviorFeedbackIsError = true
+        }
     }
 
     private func syncSelectedResolutionIfNeeded() {

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import MoonlightCore
@@ -60,6 +61,10 @@ final class MainWindowModel: ObservableObject {
 
     func stop(_ application: HostApplication) {
         coordinator.stopRunningApplication(application)
+    }
+
+    func registerLibraryWindow(_ window: NSWindow?) {
+        coordinator.setLibraryWindow(window)
     }
 
     var mainContentState: MainContentState {

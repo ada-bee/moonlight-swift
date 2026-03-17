@@ -20,6 +20,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator?.stopActiveSession()
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        _ = sender
+
+        guard !flag else {
+            return false
+        }
+
+        return coordinator?.reopenLibraryWindowIfAvailable() ?? false
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let sessionController = coordinator?.activeSessionController else {
             return .terminateNow

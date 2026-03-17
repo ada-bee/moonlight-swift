@@ -25,6 +25,11 @@ struct MainWindowView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(
+            LibraryWindowAccessor { window in
+                model.registerLibraryWindow(window)
+            }
+        )
     }
 }
 
