@@ -18,6 +18,11 @@ struct AppMain: App {
         WindowGroup {
             MainWindowView(model: mainWindowModel)
                 .frame(minWidth: 960, minHeight: 560)
+                .background(
+                    MainWindowAccessor { window in
+                        coordinator.registerMainWindow(window)
+                    }
+                )
                 .task {
                     appDelegate.coordinator = coordinator
                     coordinator.loadStartupState()

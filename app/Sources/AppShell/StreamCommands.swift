@@ -58,6 +58,22 @@ struct StreamCommands: Commands {
 
             Toggle("Direct Mouse Input", isOn: rawMouseInputBinding)
                 .disabled(coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+
+            Divider()
+
+            Button("Show Library") {
+                coordinator.showLibraryWindow()
+            }
+
+            Button("Close Stream") {
+                coordinator.closeStreamAndShowLibrary()
+            }
+            .disabled(coordinator.activeStreamApplicationID == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+
+            Button("Quit GameStream") {
+                coordinator.quitGameStream()
+            }
+            .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
         }
     }
 
