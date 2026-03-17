@@ -3,46 +3,13 @@ import MoonlightCore
 import SwiftUI
 
 struct LibraryTileView: View {
-    struct ResolutionOption: Hashable, Identifiable {
-        let resolution: MVPConfiguration.Video.Resolution
-        let label: String
-
-        var id: String {
-            "\(resolution.width)x\(resolution.height)"
-        }
-    }
-
-    struct FPSOption: Hashable, Identifiable {
-        let fps: Int
-
-        var id: Int {
-            fps
-        }
-    }
-
     let application: HostApplication
-    let launchesFullscreen: Bool
-    let usesRawMouse: Bool
-    let supportedResolutions: [MVPConfiguration.Video.Resolution]
-    let selectedResolution: MVPConfiguration.Video.Resolution
-    let selectedFPS: Int
     let playDisabled: Bool
     let pauseDisabled: Bool
     let stopDisabled: Bool
     let onPlay: () -> Void
     let onPause: () -> Void
     let onStop: () -> Void
-    let onFullscreenChange: (Bool) -> Void
-    let onRawMouseChange: (Bool) -> Void
-    let onResolutionChange: (MVPConfiguration.Video.Resolution) -> Void
-    let onFPSChange: (Int) -> Void
-
-    private static let fpsOptions: [FPSOption] = [
-        .init(fps: 30),
-        .init(fps: 60),
-        .init(fps: 90),
-        .init(fps: 120)
-    ]
 
     var body: some View {
         HStack(alignment: .center, spacing: 20) {
@@ -65,59 +32,6 @@ struct LibraryTileView: View {
                     controlButton(systemName: "play.fill", title: "Play", disabled: playDisabled, action: onPlay)
                     controlButton(systemName: "pause.fill", title: "Pause", disabled: pauseDisabled, action: onPause)
                     controlButton(systemName: "stop.fill", title: "Stop", disabled: stopDisabled, action: onStop)
-
-                    Divider()
-                        .frame(height: 26)
-
-                    Toggle(isOn: fullscreenBinding) {
-                        Text("Full Screen")
-                            .font(.subheadline)
-                    }
-                    .toggleStyle(.checkbox)
-                    .fixedSize()
-
-                    Toggle(isOn: rawMouseBinding) {
-                        Text("Raw Mouse")
-                            .font(.subheadline)
-                    }
-                    .toggleStyle(.checkbox)
-                    .fixedSize()
-
-                    Picker("Resolution", selection: resolutionBinding) {
-                        ForEach(resolutionOptions) { option in
-                            Text(option.label)
-                                .tag(option)
-                        }
-
-                        if resolutionOptions.contains(selectedResolutionOption) == false {
-                            Text(selectedResolutionOption.label)
-                                .tag(selectedResolutionOption)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 148)
-                    .disabled(launchesFullscreen)
-
-                    Picker("Refresh Rate", selection: fpsBinding) {
-                        ForEach(Self.fpsOptions) { option in
-                            Text("\(option.fps) Hz")
-                                .tag(option)
-                        }
-
-                        if Self.fpsOptions.contains(selectedFPSOption) == false {
-                            Text("\(selectedFPSOption.fps) Hz")
-                                .tag(selectedFPSOption)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 108)
-                    .disabled(launchesFullscreen)
-                }
-
-                if launchesFullscreen {
-                    Text("Fullscreen uses the display's native resolution and refresh rate.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -181,63 +95,5 @@ struct LibraryTileView: View {
         .buttonStyle(.bordered)
         .help(title)
         .disabled(disabled)
-    }
-
-    private var fullscreenBinding: Binding<Bool> {
-        Binding(
-            get: { launchesFullscreen },
-            set: { newValue in
-                onFullscreenChange(newValue)
-            }
-        )
-    }
-
-    private var rawMouseBinding: Binding<Bool> {
-        Binding(
-            get: { usesRawMouse },
-            set: { newValue in
-                onRawMouseChange(newValue)
-            }
-        )
-    }
-
-    private var resolutionOptions: [ResolutionOption] {
-        supportedResolutions.map {
-            ResolutionOption(
-                resolution: $0,
-                label: "\($0.width) x \($0.height)"
-            )
-        }
-    }
-
-    private var selectedResolutionOption: ResolutionOption {
-        resolutionOptions.first(where: {
-            $0.resolution == selectedResolution
-        }) ?? .init(
-            resolution: selectedResolution,
-            label: "\(selectedResolution.width) x \(selectedResolution.height)"
-        )
-    }
-
-    private var selectedFPSOption: FPSOption {
-        Self.fpsOptions.first(where: { $0.fps == selectedFPS }) ?? .init(fps: selectedFPS)
-    }
-
-    private var resolutionBinding: Binding<ResolutionOption> {
-        Binding(
-            get: { selectedResolutionOption },
-            set: { newValue in
-                onResolutionChange(newValue.resolution)
-            }
-        )
-    }
-
-    private var fpsBinding: Binding<FPSOption> {
-        Binding(
-            get: { selectedFPSOption },
-            set: { newValue in
-                onFPSChange(newValue.fps)
-            }
-        )
     }
 }

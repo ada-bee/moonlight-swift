@@ -17,7 +17,7 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     private let streamViewController: StreamViewController
     private let launchesFullscreen: Bool
-    private let usesRawMouse: Bool
+    private(set) var mouseMode: StreamMouseMode
     private var rawMouseCaptureEnabled = false
     private var rawMouseCursorHidden = false
     private var localCommandSuppressionActive = false
@@ -25,10 +25,10 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
     init(sessionController: SessionController, launchesFullscreen: Bool = false, usesRawMouse: Bool = false) {
         self.sessionController = sessionController
         self.launchesFullscreen = launchesFullscreen
-        self.usesRawMouse = usesRawMouse
+        self.mouseMode = StreamMouseMode(usesRawMouse: usesRawMouse)
         self.streamViewController = StreamViewController(
             sessionController: sessionController,
-            mouseMode: usesRawMouse ? .raw : .absolute
+            mouseMode: self.mouseMode
         )
 
         let contentRect = NSRect(origin: .zero, size: Self.streamContentSize(for: sessionController, screen: NSScreen.main))
@@ -77,6 +77,16 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func toggleFullScreen() {
         window?.toggleFullScreen(nil)
+    }
+
+    func setMouseMode(_ mouseMode: StreamMouseMode) {
+        guard self.mouseMode != mouseMode else {
+            return
+        }
+
+        self.mouseMode = mouseMode
+        streamViewController.setMouseMode(mouseMode)
+        updateRawMouseCapture()
     }
 
     func present() {
@@ -171,7 +181,7 @@ private extension StreamWindowController {
             return
         }
 
-        if usesRawMouse {
+        if mouseMode == .raw {
             enableRawMouseCaptureIfNeeded()
         } else {
             disableRawMouseCaptureIfNeeded()

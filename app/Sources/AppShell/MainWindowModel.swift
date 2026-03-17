@@ -27,7 +27,6 @@ final class MainWindowModel: ObservableObject {
     @Published private(set) var stopInProgress = false
     @Published private(set) var libraryActionError: String?
     @Published private(set) var shouldRefreshLibrary = false
-    @Published private(set) var gameLaunchPreferences: [Int: AppGameLaunchPreferences] = [:]
     @Published private(set) var activeStreamApplicationID: Int?
 
     let coordinator: AppCoordinator
@@ -63,46 +62,6 @@ final class MainWindowModel: ObservableObject {
         coordinator.stopRunningApplication(application)
     }
 
-    func launchesFullscreen(for applicationID: Int) -> Bool {
-        launchPreferences(for: applicationID).launchesFullscreen
-    }
-
-    func usesRawMouse(for applicationID: Int) -> Bool {
-        launchPreferences(for: applicationID).usesRawMouse
-    }
-
-    func windowedResolution(for applicationID: Int) -> MVPConfiguration.Video.Resolution {
-        launchPreferences(for: applicationID).windowedResolution
-    }
-
-    func windowedFPS(for applicationID: Int) -> Int {
-        launchPreferences(for: applicationID).windowedFPS
-    }
-
-    func setLaunchesFullscreen(_ launchesFullscreen: Bool, for applicationID: Int) {
-        coordinator.setLaunchesFullscreen(launchesFullscreen, for: applicationID)
-    }
-
-    func setUsesRawMouse(_ usesRawMouse: Bool, for applicationID: Int) {
-        coordinator.setUsesRawMouse(usesRawMouse, for: applicationID)
-    }
-
-    func setWindowedDisplayMode(_ resolution: MVPConfiguration.Video.Resolution, fps: Int, for applicationID: Int) {
-        coordinator.setWindowedDisplayMode(resolution, fps: fps, for: applicationID)
-    }
-
-    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
-        coordinator.setWindowedResolution(resolution, for: applicationID)
-    }
-
-    func setWindowedFPS(_ fps: Int, for applicationID: Int) {
-        coordinator.setWindowedFPS(fps, for: applicationID)
-    }
-
-    var supportedWindowedResolutions: [MVPConfiguration.Video.Resolution] {
-        coordinator.settings.video.supportedResolutions
-    }
-
     var mainContentState: MainContentState {
         if !hasCompletedStartupLoad {
             return .loading
@@ -133,14 +92,6 @@ final class MainWindowModel: ObservableObject {
 
                 self.hasConfiguredHost = settings.host != nil
                 self.hostInput = settings.host?.displayString ?? ""
-
-                var mappedPreferences: [Int: AppGameLaunchPreferences] = [:]
-                for (applicationID, preferences) in settings.perGameLaunchPreferences {
-                    if let numericID = Int(applicationID) {
-                        mappedPreferences[numericID] = preferences
-                    }
-                }
-                self.gameLaunchPreferences = mappedPreferences
             }
             .store(in: &cancellables)
 
@@ -238,7 +189,4 @@ final class MainWindowModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    private func launchPreferences(for applicationID: Int) -> AppGameLaunchPreferences {
-        gameLaunchPreferences[applicationID] ?? coordinator.settings.launchPreferences(for: applicationID)
-    }
 }

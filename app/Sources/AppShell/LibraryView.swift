@@ -50,11 +50,6 @@ struct LibraryView: View {
                         ForEach(model.applications) { application in
                             LibraryTileView(
                                 application: application,
-                                launchesFullscreen: model.launchesFullscreen(for: application.id),
-                                usesRawMouse: model.usesRawMouse(for: application.id),
-                                supportedResolutions: model.supportedWindowedResolutions,
-                                selectedResolution: model.windowedResolution(for: application.id),
-                                selectedFPS: model.windowedFPS(for: application.id),
                                 playDisabled: model.launchInProgress || model.stopInProgress,
                                 pauseDisabled: model.activeStreamApplicationID != application.id,
                                 stopDisabled: model.stopInProgress || model.launchInProgress,
@@ -66,18 +61,6 @@ struct LibraryView: View {
                                 },
                                 onStop: {
                                     model.stop(application)
-                                },
-                                onFullscreenChange: { launchesFullscreen in
-                                    model.setLaunchesFullscreen(launchesFullscreen, for: application.id)
-                                },
-                                onRawMouseChange: { usesRawMouse in
-                                    model.setUsesRawMouse(usesRawMouse, for: application.id)
-                                },
-                                onResolutionChange: { resolution in
-                                    model.setWindowedResolution(resolution, for: application.id)
-                                },
-                                onFPSChange: { fps in
-                                    model.setWindowedFPS(fps, for: application.id)
                                 }
                             )
                         }

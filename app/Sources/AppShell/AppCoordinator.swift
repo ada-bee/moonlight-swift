@@ -19,12 +19,27 @@ final class AppCoordinator: ObservableObject {
         case failed(String)
     }
 
+    private enum ActiveStreamResumeError: LocalizedError {
+        case noActiveStream
+        case applicationNoLongerRunning
+
+        var errorDescription: String? {
+            switch self {
+            case .noActiveStream:
+                return "There is no active stream to reconnect."
+            case .applicationNoLongerRunning:
+                return "The host app is no longer running, so the stream could not be resumed."
+            }
+        }
+    }
+
     @Published private(set) var settings: AppSettings = .initial
     @Published private(set) var pairedHost: PairedHostRecord?
     @Published private(set) var pairingState: PairingState = .idle
     @Published private(set) var libraryState: LibraryState = .idle
     @Published private(set) var activeSessionController: SessionController?
     @Published private(set) var activeStreamWindowController: StreamWindowController?
+    @Published private(set) var activeStreamMouseMode: StreamMouseMode?
     @Published private(set) var activeErrorWindowController: ErrorWindowController?
     @Published private(set) var launchInProgress = false
     @Published private(set) var stopInProgress = false
@@ -225,6 +240,102 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
+    var activeStreamApplicationID: Int? {
+        activeSessionController?.configuration.host.appID
+    }
+
+    var activeStreamScreenMode: StreamScreenMode? {
+        guard let applicationID = activeStreamApplicationID else {
+            return nil
+        }
+
+        return StreamScreenMode(launchesFullscreen: settings.launchPreferences(for: applicationID).launchesFullscreen)
+    }
+
+    var activeStreamResolution: MVPConfiguration.Video.Resolution? {
+        guard let applicationID = activeStreamApplicationID else {
+            return nil
+        }
+
+        return settings.launchPreferences(for: applicationID).windowedResolution
+    }
+
+    var activeStreamFPS: Int? {
+        guard let applicationID = activeStreamApplicationID else {
+            return nil
+        }
+
+        return settings.launchPreferences(for: applicationID).windowedFPS
+    }
+
+    var activeStreamSupportsResolutionSelection: Bool {
+        activeStreamApplicationID != nil
+    }
+
+    func setActiveStreamScreenMode(_ screenMode: StreamScreenMode) {
+        guard !launchInProgress, !stopInProgress,
+              let applicationID = activeStreamApplicationID
+        else {
+            return
+        }
+
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.launchesFullscreen != screenMode.launchesFullscreen else {
+            return
+        }
+
+        preferences.launchesFullscreen = screenMode.launchesFullscreen
+        guard updateLaunchPreferences(preferences, for: applicationID) else {
+            return
+        }
+
+        reconnectActiveStream(for: applicationID)
+    }
+
+    func setActiveStreamResolution(_ resolution: MVPConfiguration.Video.Resolution) {
+        guard !launchInProgress, !stopInProgress,
+              let applicationID = activeStreamApplicationID
+        else {
+            return
+        }
+
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.windowedResolution != resolution else {
+            return
+        }
+
+        preferences.windowedResolution = resolution
+        guard updateLaunchPreferences(preferences, for: applicationID) else {
+            return
+        }
+
+        if !preferences.launchesFullscreen {
+            reconnectActiveStream(for: applicationID)
+        }
+    }
+
+    func setActiveStreamFPS(_ fps: Int) {
+        guard !launchInProgress, !stopInProgress,
+              let applicationID = activeStreamApplicationID
+        else {
+            return
+        }
+
+        var preferences = settings.launchPreferences(for: applicationID)
+        guard preferences.windowedFPS != fps else {
+            return
+        }
+
+        preferences.windowedFPS = fps
+        guard updateLaunchPreferences(preferences, for: applicationID) else {
+            return
+        }
+
+        if !preferences.launchesFullscreen {
+            reconnectActiveStream(for: applicationID)
+        }
+    }
+
     private func refreshLibrary(force: Bool, showLoadingIndicator: Bool) {
         guard pairedHost != nil else {
             libraryState = .idle
@@ -358,54 +469,26 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func setLaunchesFullscreen(_ launchesFullscreen: Bool, for applicationID: Int) {
-        var preferences = settings.launchPreferences(for: applicationID)
-        guard preferences.launchesFullscreen != launchesFullscreen else {
+    func setActiveStreamMouseMode(_ mouseMode: StreamMouseMode) {
+        guard let streamWindowController = activeStreamWindowController,
+              let applicationID = activeSessionController?.configuration.host.appID
+        else {
             return
         }
 
-        preferences.launchesFullscreen = launchesFullscreen
-        updateLaunchPreferences(preferences, for: applicationID)
-    }
-
-    func setUsesRawMouse(_ usesRawMouse: Bool, for applicationID: Int) {
-        var preferences = settings.launchPreferences(for: applicationID)
-        guard preferences.usesRawMouse != usesRawMouse else {
+        guard activeStreamMouseMode != mouseMode else {
             return
         }
 
-        preferences.usesRawMouse = usesRawMouse
-        updateLaunchPreferences(preferences, for: applicationID)
-    }
+        streamWindowController.setMouseMode(mouseMode)
+        activeStreamMouseMode = mouseMode
 
-    func setWindowedDisplayMode(_ resolution: MVPConfiguration.Video.Resolution, fps: Int, for applicationID: Int) {
         var preferences = settings.launchPreferences(for: applicationID)
-        guard preferences.windowedResolution != resolution || preferences.windowedFPS != fps else {
+        guard preferences.usesRawMouse != mouseMode.usesRawMouse else {
             return
         }
 
-        preferences.windowedResolution = resolution
-        preferences.windowedFPS = fps
-        updateLaunchPreferences(preferences, for: applicationID)
-    }
-
-    func setWindowedResolution(_ resolution: MVPConfiguration.Video.Resolution, for applicationID: Int) {
-        var preferences = settings.launchPreferences(for: applicationID)
-        guard preferences.windowedResolution != resolution else {
-            return
-        }
-
-        preferences.windowedResolution = resolution
-        updateLaunchPreferences(preferences, for: applicationID)
-    }
-
-    func setWindowedFPS(_ fps: Int, for applicationID: Int) {
-        var preferences = settings.launchPreferences(for: applicationID)
-        guard preferences.windowedFPS != fps else {
-            return
-        }
-
-        preferences.windowedFPS = fps
+        preferences.usesRawMouse = mouseMode.usesRawMouse
         updateLaunchPreferences(preferences, for: applicationID)
     }
 
@@ -570,6 +653,7 @@ final class AppCoordinator: ObservableObject {
                     self.launchInProgress = false
                     if state == .failed {
                         self.activeSessionController = nil
+                        self.activeStreamMouseMode = nil
                         self.activeStreamWindowController?.close()
                         self.activeStreamWindowController = nil
                     }
@@ -577,6 +661,7 @@ final class AppCoordinator: ObservableObject {
                     self.launchInProgress = false
                     self.isLibraryStale = true
                     self.activeSessionController = nil
+                    self.activeStreamMouseMode = nil
                     self.activeStreamWindowController?.close()
                     self.activeStreamWindowController = nil
                 }
@@ -772,14 +857,75 @@ final class AppCoordinator: ObservableObject {
         return Int(refreshRate.rounded())
     }
 
-    private func updateLaunchPreferences(_ preferences: AppGameLaunchPreferences, for applicationID: Int) {
+    @discardableResult
+    private func updateLaunchPreferences(_ preferences: AppGameLaunchPreferences, for applicationID: Int) -> Bool {
         settings.setLaunchPreferences(preferences, for: applicationID)
 
         do {
             try settingsStore.save(settings)
             libraryActionError = nil
+            return true
         } catch {
             libraryActionError = error.localizedDescription
+            return false
+        }
+    }
+
+    private func reconnectActiveStream(for applicationID: Int) {
+        guard activeSessionController != nil else {
+            return
+        }
+
+        launchInProgress = true
+        libraryActionError = nil
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                guard await MainActor.run(body: { self.activeSessionController?.configuration.host.appID == applicationID }) else {
+                    throw ActiveStreamResumeError.noActiveStream
+                }
+
+                let preferences = await MainActor.run {
+                    self.settings.launchPreferences(for: applicationID)
+                }
+                let requestedVideoMode = await MainActor.run {
+                    self.launchVideoMode(for: preferences)
+                }
+
+                await self.teardownActiveSession(closeErrorWindow: true)
+
+                let runningApplicationID = await self.currentRunningApplicationIDForLaunch()
+                guard runningApplicationID == applicationID else {
+                    throw ActiveStreamResumeError.applicationNoLongerRunning
+                }
+
+                let configuration = try await MainActor.run {
+                    try self.settings.makeConfiguration(
+                        appID: applicationID,
+                        autoConnectOnLaunch: false,
+                        requestResume: true,
+                        resolution: requestedVideoMode.resolution,
+                        fps: requestedVideoMode.fps
+                    )
+                }
+
+                await MainActor.run {
+                    self.startSession(
+                        configuration: configuration,
+                        launchesFullscreen: preferences.launchesFullscreen,
+                        usesRawMouse: preferences.usesRawMouse
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    self.launchInProgress = false
+                    self.libraryActionError = error.localizedDescription
+                }
+            }
         }
     }
 
@@ -805,6 +951,7 @@ final class AppCoordinator: ObservableObject {
         activeSessionController = sessionController
         activeErrorWindowController = errorWindowController
         activeStreamWindowController = streamWindowController
+        activeStreamMouseMode = streamWindowController.mouseMode
 
         streamWindowController.present()
         NSApp.activate(ignoringOtherApps: true)
@@ -837,6 +984,7 @@ final class AppCoordinator: ObservableObject {
 
         activeSessionController = nil
         activeStreamWindowController = nil
+        activeStreamMouseMode = nil
         if closeErrorWindow {
             activeErrorWindowController = nil
         }

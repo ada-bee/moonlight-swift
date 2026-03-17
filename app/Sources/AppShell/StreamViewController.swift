@@ -3,11 +3,6 @@ import MoonlightCore
 
 @MainActor
 final class StreamViewController: NSViewController {
-    enum MouseMode {
-        case absolute
-        case raw
-    }
-
     private let sessionController: SessionController
     private let rendererView = VideoRendererView(frame: .zero)
     private let inputView: StreamInputView
@@ -17,11 +12,15 @@ final class StreamViewController: NSViewController {
         set { inputView.onLocalCommandSuppressionChanged = newValue }
     }
 
-    init(sessionController: SessionController, mouseMode: MouseMode) {
+    var mouseMode: StreamMouseMode {
+        inputView.mouseMode
+    }
+
+    init(sessionController: SessionController, mouseMode: StreamMouseMode) {
         self.sessionController = sessionController
         self.inputView = StreamInputView(sessionController: sessionController)
         super.init(nibName: nil, bundle: nil)
-        self.inputView.mouseMode = mouseMode == .raw ? .raw : .absolute
+        self.inputView.mouseMode = mouseMode
     }
 
     @available(*, unavailable)
@@ -49,6 +48,10 @@ final class StreamViewController: NSViewController {
 
     func setMouseCaptureState(_ isActive: Bool) {
         inputView.setMouseCaptureState(isActive)
+    }
+
+    func setMouseMode(_ mouseMode: StreamMouseMode) {
+        inputView.mouseMode = mouseMode
     }
 
     func releaseAllRemoteInputs() {

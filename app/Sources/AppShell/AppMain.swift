@@ -28,6 +28,9 @@ struct AppMain: App {
                 }
         }
         .defaultSize(width: 1180, height: 720)
+        .commands {
+            StreamCommands(coordinator: coordinator)
+        }
 
         Settings {
             SettingsView(coordinator: coordinator)

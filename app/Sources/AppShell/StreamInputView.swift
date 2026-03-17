@@ -4,11 +4,6 @@ import MoonlightCore
 
 @MainActor
 final class StreamInputView: NSView {
-    enum MouseMode {
-        case absolute
-        case raw
-    }
-
     private struct PressedKeyState {
         let mapping: WindowsVirtualKeyMap.Mapping
 
@@ -59,7 +54,7 @@ final class StreamInputView: NSView {
         }
     }
 
-    var mouseMode: MouseMode = .absolute {
+    var mouseMode: StreamMouseMode = .absolute {
         didSet {
             guard oldValue != mouseMode else {
                 return
