@@ -497,8 +497,43 @@ final class AppCoordinator: ObservableObject {
     }
 
     func saveSupportedResolutions(_ resolutions: [MVPConfiguration.Video.Resolution]) throws {
-        settings.video.supportedResolutions = AppSettings.Video.normalizedSupportedResolutions(resolutions)
-        try settingsStore.save(settings)
+        var updatedSettings = settings
+        let normalizedResolutions = AppSettings.Video.normalizedSupportedResolutions(resolutions)
+        updatedSettings.video.supportedResolutions = normalizedResolutions
+
+        let defaultResolution = MVPConfiguration.Video.Resolution(
+            width: updatedSettings.video.width,
+            height: updatedSettings.video.height
+        )
+        if normalizedResolutions.contains(defaultResolution) == false,
+           let fallbackResolution = normalizedResolutions.first
+        {
+            updatedSettings.video.width = fallbackResolution.width
+            updatedSettings.video.height = fallbackResolution.height
+        }
+
+        try settingsStore.save(updatedSettings)
+        settings = updatedSettings
+    }
+
+    func saveDefaultVideoSettings(
+        resolution: MVPConfiguration.Video.Resolution,
+        fps: Int
+    ) throws {
+        var updatedSettings = settings
+
+        if updatedSettings.video.supportedResolutions.contains(resolution) == false {
+            updatedSettings.video.supportedResolutions = AppSettings.Video.normalizedSupportedResolutions(
+                updatedSettings.video.supportedResolutions + [resolution]
+            )
+        }
+
+        updatedSettings.video.width = resolution.width
+        updatedSettings.video.height = resolution.height
+        updatedSettings.video.fps = fps
+
+        try settingsStore.save(updatedSettings)
+        settings = updatedSettings
     }
 
     func saveLibraryWindowBehavior(

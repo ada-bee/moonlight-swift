@@ -11,37 +11,215 @@ struct SettingsView: View {
     @State private var hostFeedbackIsError = false
     @State private var wakeOnLANFeedbackMessage: String?
     @State private var wakeOnLANFeedbackIsError = false
+    @State private var selectedResolutionID = ""
+    @State private var selectedFPS = 120
     @State private var resolutionWidthInput = ""
     @State private var resolutionHeightInput = ""
-    @State private var selectedResolutionID: String?
-    @State private var videoFeedbackMessage: String?
-    @State private var videoFeedbackIsError = false
+    @State private var streamFeedbackMessage: String?
+    @State private var streamFeedbackIsError = false
     @State private var closeLibraryWindowOnStreamStart = false
     @State private var reopenLibraryWindowOnStreamStop = false
     @State private var libraryWindowBehaviorFeedbackMessage: String?
     @State private var libraryWindowBehaviorFeedbackIsError = false
     @State private var resetInProgress = false
 
+    private static let standardFPSOptions = [30, 60, 90, 120]
+
     var body: some View {
-        Form {
-            Section("Streaming") {
-                libraryWindowBehaviorSection
-                supportedResolutionsSection
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                preferenceSection(
+                    title: "Client",
+                    description: "Choose how the library window behaves while a stream is active."
+                ) {
+                    settingsGroup {
+                        Toggle("Close library window when a stream starts", isOn: closeLibraryWindowOnStreamStartBinding)
 
-            Section("Sunshine Host") {
-                sunshineHostSection
-            }
+                        Toggle("Reopen library window when a stream stops", isOn: reopenLibraryWindowOnStreamStopBinding)
+                            .disabled(!closeLibraryWindowOnStreamStart)
+                    }
 
-            Section("Wake On LAN") {
-                wakeOnLANSection
+                    feedbackText(
+                        libraryWindowBehaviorFeedbackMessage,
+                        isError: libraryWindowBehaviorFeedbackIsError
+                    )
+                }
+
+                preferenceSection(
+                    title: "Stream",
+                    description: "Set the default windowed video mode used from the library and manage the available resolution list."
+                ) {
+                    settingsGroup {
+                        labeledRow("Resolution") {
+                            Picker("Resolution", selection: selectedResolutionBinding) {
+                                ForEach(supportedResolutions, id: \.self) { resolution in
+                                    Text(resolutionLabel(resolution))
+                                        .tag(resolutionID(for: resolution))
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 220, alignment: .leading)
+                            .pickerStyle(.menu)
+                        }
+
+                        Divider()
+
+                        labeledRow("Frame Rate") {
+                            Picker("Frame Rate", selection: selectedFPSBinding) {
+                                ForEach(fpsOptions, id: \.self) { fps in
+                                    Text("\(fps) Hz")
+                                        .tag(fps)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 140, alignment: .leading)
+                            .pickerStyle(.menu)
+                        }
+                    }
+
+                    settingsGroup {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Custom Resolutions")
+                                .font(.headline)
+
+                            Text("Add any supported window size to the list shown in the Resolution menu.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                TextField("Width", text: $resolutionWidthInput)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 90)
+
+                                Text("x")
+                                    .foregroundStyle(.secondary)
+
+                                TextField("Height", text: $resolutionHeightInput)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 90)
+
+                                Button("Add", action: addSupportedResolution)
+                                    .buttonStyle(.bordered)
+                                    .disabled(candidateResolution == nil)
+
+                                Button("Remove", role: .destructive, action: removeSelectedResolution)
+                                    .buttonStyle(.bordered)
+                                    .disabled(selectedSupportedResolution == nil || supportedResolutions.count <= 1)
+
+                                Spacer(minLength: 0)
+
+                                Button("Restore Defaults", action: resetSupportedResolutions)
+                                    .buttonStyle(.bordered)
+                            }
+
+                            Text("Widths and heights must be positive even numbers.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    feedbackText(streamFeedbackMessage, isError: streamFeedbackIsError)
+                }
+
+                preferenceSection(
+                    title: "Sunshine",
+                    description: "Review the current host, update Wake-on-LAN details, or pair a different machine."
+                ) {
+                    settingsGroup {
+                        VStack(alignment: .leading, spacing: 14) {
+                            hostSummaryView
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Wake-on-LAN MAC Address")
+                                    .font(.subheadline.weight(.medium))
+
+                                TextField("00:11:22:33:44:55", text: $macAddress)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.body, design: .monospaced))
+                                    .disabled(!hasPairedHost)
+
+                                TextField("Broadcast Address (Optional)", text: $broadcastAddress)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.body, design: .monospaced))
+                                    .disabled(!hasPairedHost)
+
+                                HStack(spacing: 10) {
+                                    Button("Save", action: saveWakeOnLANConfiguration)
+                                        .buttonStyle(.bordered)
+                                        .disabled(!hasPairedHost || trimmedMACAddress.isEmpty)
+
+                                    Button("Clear", role: .destructive, action: clearWakeOnLANConfiguration)
+                                        .buttonStyle(.bordered)
+                                        .disabled(!hasPairedHost || coordinator.pairedHost?.wakeOnLANConfiguration == nil)
+                                }
+
+                                if !hasPairedHost {
+                                    Text("Pair a host before editing Wake-on-LAN settings.")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    if let wakeOnLANFeedbackMessage {
+                        feedbackText(wakeOnLANFeedbackMessage, isError: wakeOnLANFeedbackIsError)
+                    }
+
+                    settingsGroup {
+                        VStack(alignment: .leading, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Pair New Host")
+                                    .font(.headline)
+
+                                Text("Enter the Sunshine host as an IP address and port.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            TextField("192.168.1.10:47989", text: $hostInput)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+                                .onSubmit(startPairing)
+
+                            HStack(spacing: 10) {
+                                Button(pairButtonTitle, action: startPairing)
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(trimmedHostInput.isEmpty || coordinator.pairingState.isInProgress)
+
+                                Button("Forget Host", role: .destructive, action: resetPairing)
+                                    .buttonStyle(.bordered)
+                                    .disabled(!hasConfiguredHost || resetInProgress || coordinator.pairingState.isInProgress)
+                            }
+
+                            if let statusText = pairingStatusText {
+                                Text(statusText)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let pin = pairingPIN {
+                                Text(pin)
+                                    .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+
+                    feedbackText(hostFeedbackMessage, isError: hostFeedbackIsError)
+                }
             }
+            .padding(24)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: loadState)
         .onReceive(coordinator.$settings) { _ in
             hostInput = coordinator.settings.host?.displayString ?? ""
             clearHostFeedbackIfNeeded()
             syncSelectedResolutionIfNeeded()
+            syncSelectedFPSIfNeeded()
             loadLibraryWindowBehavior()
         }
         .onReceive(coordinator.$pairedHost) { _ in
@@ -58,178 +236,38 @@ struct SettingsView: View {
         }
     }
 
-    private var sunshineHostSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Pair here instead of the main window. Enter the Sunshine host as ip:port, then pair or update the current host.")
-                .foregroundStyle(.secondary)
+    private var hostSummaryView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Current Host")
+                .font(.headline)
 
-            TextField("192.168.1.10:47989", text: $hostInput)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
-                .onSubmit {
-                    startPairing()
-                }
-
-            pairedHostSummary
-
-            HStack(spacing: 12) {
-                Button(pairButtonTitle, action: startPairing)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(trimmedHostInput.isEmpty || coordinator.pairingState.isInProgress)
-
-                Button("Reset", role: .destructive, action: resetPairing)
-                    .buttonStyle(.bordered)
-                    .disabled(!hasConfiguredHost || resetInProgress || coordinator.pairingState.isInProgress)
-            }
-
-            if let statusText = pairingStatusText {
-                Text(statusText)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let pin = pairingPIN {
-                Text(pin)
-                    .font(.system(size: 32, weight: .bold, design: .monospaced))
-                    .padding(.top, 2)
-            }
-
-            if let hostFeedbackMessage {
-                Text(hostFeedbackMessage)
-                    .foregroundStyle(hostFeedbackIsError ? Color(nsColor: .systemRed) : .secondary)
-            }
-        }
-    }
-
-    private var wakeOnLANSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Add or change the host MAC address used for Wake-on-LAN packets. Sunshine pairing does not expose it here, so enter it manually.")
-                .foregroundStyle(.secondary)
-
-            TextField("00:11:22:33:44:55", text: $macAddress)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
-                .disabled(!hasPairedHost)
-
-            TextField("255.255.255.255 (optional)", text: $broadcastAddress)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
-                .disabled(!hasPairedHost)
-
-            HStack(spacing: 12) {
-                Button("Save WOL") {
-                    saveWakeOnLANConfiguration()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!hasPairedHost || trimmedMACAddress.isEmpty)
-
-                Button("Clear WOL") {
-                    clearWakeOnLANConfiguration()
-                }
-                .buttonStyle(.bordered)
-                .disabled(!hasPairedHost || coordinator.pairedHost?.wakeOnLANConfiguration == nil)
-            }
-
-            if let wakeOnLANFeedbackMessage {
-                Text(wakeOnLANFeedbackMessage)
-                    .foregroundStyle(wakeOnLANFeedbackIsError ? Color(nsColor: .systemRed) : .secondary)
-            }
-
-            if !hasPairedHost {
-                Text("Pair with a host before saving Wake-on-LAN settings.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var supportedResolutionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Choose the windowed resolutions that appear in the library. Fullscreen always uses the display's native resolution and refresh rate.")
-                .foregroundStyle(.secondary)
-
-            List(selection: $selectedResolutionID) {
-                ForEach(supportedResolutions, id: \.self) { resolution in
-                    Text(resolutionLabel(resolution))
-                        .tag(resolutionID(for: resolution))
-                }
-            }
-            .frame(minHeight: 170)
-
-            HStack(alignment: .top, spacing: 12) {
-                TextField("Width", text: $resolutionWidthInput)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 96)
-
-                TextField("Height", text: $resolutionHeightInput)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 96)
-
-                Button("Add") {
-                    addSupportedResolution()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(candidateResolution == nil)
-
-                Button("Remove") {
-                    removeSelectedResolution()
-                }
-                .buttonStyle(.bordered)
-                .disabled(selectedSupportedResolution == nil)
-
-                Button("Reset to Defaults") {
-                    resetSupportedResolutions()
-                }
-                .buttonStyle(.bordered)
-            }
-
-            Text("Custom resolutions must use positive even numbers for width and height.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let videoFeedbackMessage {
-                Text(videoFeedbackMessage)
-                    .foregroundStyle(videoFeedbackIsError ? Color(nsColor: .systemRed) : .secondary)
-            }
-        }
-    }
-
-    private var libraryWindowBehaviorSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Automatically hide the library window once a stream is active, then optionally bring it back after that stream ends.")
-                .foregroundStyle(.secondary)
-
-            Toggle("Close library window when stream starts.", isOn: closeLibraryWindowOnStreamStartBinding)
-
-            Toggle("Reopen library window when stream stops.", isOn: reopenLibraryWindowOnStreamStopBinding)
-                .disabled(!closeLibraryWindowOnStreamStart)
-
-            if let libraryWindowBehaviorFeedbackMessage {
-                Text(libraryWindowBehaviorFeedbackMessage)
-                    .foregroundStyle(libraryWindowBehaviorFeedbackIsError ? Color(nsColor: .systemRed) : .secondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var pairedHostSummary: some View {
-        if let pairedHost = coordinator.pairedHost {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Current paired host")
-                    .foregroundStyle(.secondary)
-
-                Text(pairedHost.host.displayString)
+            if let pairedHost = coordinator.pairedHost {
+                LabeledContent("Address", value: pairedHost.host.displayString)
                     .font(.system(.body, design: .monospaced))
 
                 if let macAddress = pairedHost.wakeOnLANConfiguration?.macAddress {
-                    Text("Wake-on-LAN MAC: \(macAddress)")
-                        .foregroundStyle(.secondary)
+                    LabeledContent("MAC", value: macAddress)
+                        .font(.system(.body, design: .monospaced))
                 }
+
+                if let broadcastAddress = pairedHost.wakeOnLANConfiguration?.broadcastAddress,
+                   broadcastAddress.isEmpty == false
+                {
+                    LabeledContent("Broadcast", value: broadcastAddress)
+                        .font(.system(.body, design: .monospaced))
+                }
+            } else if let configuredHost = coordinator.settings.host?.displayString {
+                LabeledContent("Address", value: configuredHost)
+                    .font(.system(.body, design: .monospaced))
+
+                Text("The host is saved, but pairing has not completed yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("No Sunshine host is configured.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-        } else if hasConfiguredHost {
-            Text("No active pairing is stored for the configured host yet.")
-                .foregroundStyle(.secondary)
-        } else {
-            Text("No Sunshine host is configured yet.")
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -253,6 +291,13 @@ struct SettingsView: View {
         coordinator.settings.video.supportedResolutions
     }
 
+    private var defaultResolution: MVPConfiguration.Video.Resolution {
+        MVPConfiguration.Video.Resolution(
+            width: coordinator.settings.video.width,
+            height: coordinator.settings.video.height
+        )
+    }
+
     private var candidateResolution: MVPConfiguration.Video.Resolution? {
         guard let width = Int(trimmedResolutionWidthInput),
               let height = Int(trimmedResolutionHeightInput)
@@ -269,11 +314,7 @@ struct SettingsView: View {
     }
 
     private var selectedSupportedResolution: MVPConfiguration.Video.Resolution? {
-        guard let selectedResolutionID else {
-            return nil
-        }
-
-        return supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID })
+        supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID })
     }
 
     private var trimmedResolutionWidthInput: String {
@@ -285,7 +326,27 @@ struct SettingsView: View {
     }
 
     private var pairButtonTitle: String {
-        coordinator.pairingState.isInProgress ? "Pairing..." : (hasPairedHost ? "Change Host" : "Start Pairing")
+        coordinator.pairingState.isInProgress ? "Pairing..." : (hasPairedHost ? "Pair New Host" : "Pair Host")
+    }
+
+    private var selectedResolutionBinding: Binding<String> {
+        Binding(
+            get: { selectedResolutionID },
+            set: { newValue in
+                selectedResolutionID = newValue
+                saveDefaultVideoSettingsIfPossible()
+            }
+        )
+    }
+
+    private var selectedFPSBinding: Binding<Int> {
+        Binding(
+            get: { selectedFPS },
+            set: { newValue in
+                selectedFPS = newValue
+                saveDefaultVideoSettingsIfPossible()
+            }
+        )
     }
 
     private var closeLibraryWindowOnStreamStartBinding: Binding<Bool> {
@@ -327,11 +388,18 @@ struct SettingsView: View {
         return nil
     }
 
+    private var fpsOptions: [Int] {
+        var options = Set(Self.standardFPSOptions)
+        options.insert(coordinator.settings.video.fps)
+        return options.sorted()
+    }
+
     private func loadState() {
         hostInput = coordinator.settings.host?.displayString ?? ""
         loadWakeOnLANConfiguration()
         clearHostFeedbackIfNeeded()
         syncSelectedResolutionIfNeeded()
+        syncSelectedFPSIfNeeded()
         loadLibraryWindowBehavior()
     }
 
@@ -366,6 +434,19 @@ struct SettingsView: View {
         wakeOnLANFeedbackIsError = false
     }
 
+    private func syncSelectedResolutionIfNeeded() {
+        let defaultResolutionID = resolutionID(for: defaultResolution)
+        if supportedResolutions.contains(defaultResolution) {
+            selectedResolutionID = defaultResolutionID
+        } else {
+            selectedResolutionID = supportedResolutions.first.map(resolutionID(for:)) ?? ""
+        }
+    }
+
+    private func syncSelectedFPSIfNeeded() {
+        selectedFPS = coordinator.settings.video.fps
+    }
+
     private func saveLibraryWindowBehavior() {
         do {
             try coordinator.saveLibraryWindowBehavior(
@@ -384,14 +465,21 @@ struct SettingsView: View {
         }
     }
 
-    private func syncSelectedResolutionIfNeeded() {
-        if let selectedResolutionID,
-           supportedResolutions.contains(where: { resolutionID(for: $0) == selectedResolutionID })
-        {
+    private func saveDefaultVideoSettingsIfPossible() {
+        guard let resolution = supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID }) else {
             return
         }
 
-        selectedResolutionID = supportedResolutions.first.map(resolutionID(for:))
+        do {
+            try coordinator.saveDefaultVideoSettings(resolution: resolution, fps: selectedFPS)
+            streamFeedbackMessage = "Default stream settings updated."
+            streamFeedbackIsError = false
+            syncSelectedResolutionIfNeeded()
+            syncSelectedFPSIfNeeded()
+        } catch {
+            streamFeedbackMessage = error.localizedDescription
+            streamFeedbackIsError = true
+        }
     }
 
     private func startPairing() {
@@ -451,8 +539,8 @@ struct SettingsView: View {
 
     private func addSupportedResolution() {
         guard let resolution = candidateResolution else {
-            videoFeedbackMessage = "Enter a valid resolution using positive even numbers."
-            videoFeedbackIsError = true
+            streamFeedbackMessage = "Enter a valid resolution using positive even numbers."
+            streamFeedbackIsError = true
             return
         }
 
@@ -461,10 +549,11 @@ struct SettingsView: View {
             updatedResolutions.append(resolution)
         }
 
-        saveSupportedResolutions(updatedResolutions, successMessage: "Windowed resolutions updated.")
+        saveSupportedResolutions(updatedResolutions, successMessage: "Resolution list updated.")
         selectedResolutionID = resolutionID(for: resolution)
         resolutionWidthInput = ""
         resolutionHeightInput = ""
+        saveDefaultVideoSettingsIfPossible()
     }
 
     private func removeSelectedResolution() {
@@ -473,16 +562,18 @@ struct SettingsView: View {
         }
 
         let updatedResolutions = supportedResolutions.filter { $0 != selectedSupportedResolution }
-        saveSupportedResolutions(updatedResolutions, successMessage: "Windowed resolutions updated.")
+        saveSupportedResolutions(updatedResolutions, successMessage: "Resolution list updated.")
         syncSelectedResolutionIfNeeded()
+        saveDefaultVideoSettingsIfPossible()
     }
 
     private func resetSupportedResolutions() {
         saveSupportedResolutions(
             AppSettings.Video.defaultSupportedResolutions,
-            successMessage: "Default windowed resolutions restored."
+            successMessage: "Default resolutions restored."
         )
         syncSelectedResolutionIfNeeded()
+        saveDefaultVideoSettingsIfPossible()
     }
 
     private func saveSupportedResolutions(
@@ -491,11 +582,60 @@ struct SettingsView: View {
     ) {
         do {
             try coordinator.saveSupportedResolutions(resolutions)
-            videoFeedbackMessage = successMessage
-            videoFeedbackIsError = false
+            streamFeedbackMessage = successMessage
+            streamFeedbackIsError = false
         } catch {
-            videoFeedbackMessage = error.localizedDescription
-            videoFeedbackIsError = true
+            streamFeedbackMessage = error.localizedDescription
+            streamFeedbackIsError = true
+        }
+    }
+
+    private func preferenceSection<Content: View>(
+        title: String,
+        description: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+
+            Text(description)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12, content: content)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func labeledRow<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(title)
+                .frame(width: 110, alignment: .leading)
+
+            content()
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func feedbackText(_ message: String?, isError: Bool) -> some View {
+        if let message {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(isError ? Color(nsColor: .systemRed) : .secondary)
         }
     }
 
