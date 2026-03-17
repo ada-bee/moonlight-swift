@@ -38,42 +38,26 @@ struct StreamCommands: Commands {
     var body: some Commands {
         CommandMenu("Stream") {
             Toggle("Fullscreen", isOn: fullscreenBinding)
-            .disabled(coordinator.activeStreamScreenMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+            .disabled(!isStreamMenuAvailable || coordinator.activeStreamScreenMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
 
             Menu("Resolution") {
                 ForEach(resolutionOptions, id: \.self) { option in
                     Toggle(option.label, isOn: resolutionBinding(for: option.resolution))
                 }
             }
-            .disabled(!isResolutionMenuEnabled)
+            .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
 
             Menu("Frame Rate") {
                 ForEach(fpsOptions, id: \.self) { option in
                     Toggle(option.label, isOn: fpsBinding(for: option.fps))
                 }
             }
-            .disabled(!isResolutionMenuEnabled)
+            .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
 
             Divider()
 
             Toggle("Direct Mouse Input", isOn: rawMouseInputBinding)
-                .disabled(coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-
-            Divider()
-
-            Button("Show Library") {
-                coordinator.showLibraryWindow()
-            }
-
-            Button("Close Stream") {
-                coordinator.closeStreamAndShowLibrary()
-            }
-            .disabled(coordinator.activeStreamApplicationID == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-
-            Button("Quit GameStream") {
-                coordinator.quitGameStream()
-            }
-            .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
+                .disabled(!isStreamMenuAvailable || coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
         }
     }
 
@@ -159,5 +143,9 @@ struct StreamCommands: Commands {
             && coordinator.activeStreamScreenMode == .windowed
             && !coordinator.launchInProgress
             && !coordinator.stopInProgress
+    }
+
+    private var isStreamMenuAvailable: Bool {
+        coordinator.activeStreamApplicationID != nil
     }
 }

@@ -54,7 +54,6 @@ final class AppCoordinator: ObservableObject {
     private let libraryClient: HostLibraryClient
     private let posterImageLoader: PosterImageLoader
     private let wakeOnLANClient: WakeOnLANClient
-    private weak var mainWindow: NSWindow?
     private var sessionObservers: Set<AnyCancellable> = []
     private var hasLoadedStartupState = false
     private var isLibraryPollingActive = false
@@ -238,74 +237,6 @@ final class AppCoordinator: ObservableObject {
 
         Task { [weak self] in
             await self?.teardownActiveSession(closeErrorWindow: true)
-        }
-    }
-
-    func registerMainWindow(_ window: NSWindow?) {
-        guard let window else {
-            return
-        }
-
-        mainWindow = window
-    }
-
-    func showLibraryWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        mainWindow?.makeKeyAndOrderFront(nil)
-    }
-
-    func closeStreamAndShowLibrary() {
-        guard activeSessionController != nil else {
-            showLibraryWindow()
-            return
-        }
-
-        libraryActionError = nil
-
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            await self.teardownActiveSession(closeErrorWindow: true)
-            await MainActor.run {
-                self.showLibraryWindow()
-            }
-        }
-    }
-
-    func quitGameStream() {
-        guard !launchInProgress, !stopInProgress else {
-            return
-        }
-
-        libraryActionError = nil
-
-        Task { [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                let runningApplicationID = await self.currentRunningApplicationIDForLaunch()
-
-                if runningApplicationID != 0 {
-                    if self.activeSessionController != nil {
-                        await self.teardownActiveSession(closeErrorWindow: true)
-                    }
-
-                    try await self.stopHostApplication()
-                }
-
-                await MainActor.run {
-                    NSApp.terminate(nil)
-                }
-            } catch {
-                await MainActor.run {
-                    self.libraryActionError = error.localizedDescription
-                    self.showLibraryWindow()
-                }
-            }
         }
     }
 
