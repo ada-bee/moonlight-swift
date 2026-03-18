@@ -1,9 +1,12 @@
 import AppKit
 import Carbon.HIToolbox
+import GameController
 import MoonlightCore
 
 @MainActor
 final class StreamInputView: NSView {
+    private static let rawMouseDeviceScale = 0.9
+
     private struct PressedKeyState {
         let mapping: WindowsVirtualKeyMap.Mapping
 
@@ -21,12 +24,16 @@ final class StreamInputView: NSView {
     private let streamResolution: CGSize
 
     private var trackingArea: NSTrackingArea?
+    private var rawMouseObservers: [NSObjectProtocol] = []
+    private var rawMouseDevices: [ObjectIdentifier: GCMouse] = [:]
     private var commandKeyActive = false
     private var suppressRemoteInputForLocalCommand = false
     private var mouseInsideVideoRegion = false
     private var continueAbsoluteDragOutsideVideoRegion = false
     private var mouseCaptureActive = false
     private var localCursorHiddenByView = false
+    private var rawRelativeMouseRemainderX = 0.0
+    private var rawRelativeMouseRemainderY = 0.0
     private var physicallyPressedMouseButtons: Set<SessionController.MouseButton> = []
     private var remotelyPressedMouseButtons: Set<SessionController.MouseButton> = []
     private var physicallyPressedKeyboardInputs: [UInt16: PressedKeyState] = [:]
@@ -74,6 +81,7 @@ final class StreamInputView: NSView {
         layer?.cornerRadius = 14
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
+        configureRawMouseObservation()
     }
 
     @available(*, unavailable)
@@ -101,6 +109,14 @@ final class StreamInputView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+
+        if newWindow == nil {
+            tearDownRawMouseObservation()
+        }
     }
 
     override func updateTrackingAreas() {
@@ -391,6 +407,8 @@ private extension StreamInputView {
     func clearInputBookkeepingOnly() {
         commandKeyActive = false
         setLocalShortcutSuppression(false)
+        rawRelativeMouseRemainderX = 0
+        rawRelativeMouseRemainderY = 0
         physicallyPressedMouseButtons.removeAll()
         remotelyPressedMouseButtons.removeAll()
         physicallyPressedKeyboardInputs.removeAll()
@@ -431,6 +449,10 @@ private extension StreamInputView {
 
         if mouseMode == .raw {
             guard mouseCaptureActive else {
+                return
+            }
+
+            if hasRawMouseDeviceInput {
                 return
             }
 
@@ -688,20 +710,132 @@ private extension StreamInputView {
         return Int32(scaledDelta.rounded())
     }
 
-    func rawRelativeMouseDeltaX(for event: NSEvent) -> Int64 {
-        if let cgEvent = event.cgEvent {
-            return cgEvent.getIntegerValueField(.mouseEventDeltaX)
-        }
-
-        return Int64(event.deltaX.rounded())
+    func rawRelativeMouseDeltaX(for event: NSEvent) -> Int32 {
+        rawRelativeMouseDelta(
+            for: event,
+            field: .mouseEventDeltaX,
+            fallback: Double(event.deltaX),
+            remainder: &rawRelativeMouseRemainderX
+        )
     }
 
-    func rawRelativeMouseDeltaY(for event: NSEvent) -> Int64 {
-        if let cgEvent = event.cgEvent {
-            return cgEvent.getIntegerValueField(.mouseEventDeltaY)
+    func rawRelativeMouseDeltaY(for event: NSEvent) -> Int32 {
+        rawRelativeMouseDelta(
+            for: event,
+            field: .mouseEventDeltaY,
+            fallback: Double(event.deltaY),
+            remainder: &rawRelativeMouseRemainderY
+        )
+    }
+
+    func handleRawMouseDeviceMotion(deltaX: Double, deltaY: Double) {
+        guard mouseMode == .raw, mouseCaptureActive else {
+            return
         }
 
-        return Int64(event.deltaY.rounded())
+        let translatedDeltaX = rawRelativeMouseDelta(
+            value: deltaX * Self.rawMouseDeviceScale,
+            remainder: &rawRelativeMouseRemainderX
+        )
+        let translatedDeltaY = rawRelativeMouseDelta(
+            value: -deltaY * Self.rawMouseDeviceScale,
+            remainder: &rawRelativeMouseRemainderY
+        )
+        if translatedDeltaX != 0 || translatedDeltaY != 0 {
+            sessionController.sendRelativeMouse(deltaX: translatedDeltaX, deltaY: translatedDeltaY)
+        }
+    }
+
+    func rawRelativeMouseDelta(
+        for event: NSEvent,
+        field: CGEventField,
+        fallback: Double,
+        remainder: inout Double
+    ) -> Int32 {
+        let delta: Double
+        if let cgEvent = event.cgEvent {
+            delta = cgEvent.getDoubleValueField(field)
+        } else {
+            delta = fallback
+        }
+
+        return rawRelativeMouseDelta(value: delta, remainder: &remainder)
+    }
+
+    func rawRelativeMouseDelta(value: Double, remainder: inout Double) -> Int32 {
+        guard value.isFinite else {
+            return 0
+        }
+
+        let totalDelta = remainder + value
+        let integralDelta = totalDelta.rounded(.towardZero)
+        remainder = totalDelta - integralDelta
+        return Int32(clamping: Int64(integralDelta))
+    }
+
+    func configureRawMouseObservation() {
+        let notificationCenter = NotificationCenter.default
+        rawMouseObservers = [
+            notificationCenter.addObserver(
+                forName: NSNotification.Name.GCMouseDidConnect,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshRawMouseDevices()
+                }
+            },
+            notificationCenter.addObserver(
+                forName: NSNotification.Name.GCMouseDidDisconnect,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshRawMouseDevices()
+                }
+            }
+        ]
+        refreshRawMouseDevices()
+    }
+
+    func tearDownRawMouseObservation() {
+        let notificationCenter = NotificationCenter.default
+        for observer in rawMouseObservers {
+            notificationCenter.removeObserver(observer)
+        }
+        rawMouseObservers.removeAll()
+
+        for mouse in rawMouseDevices.values {
+            mouse.mouseInput?.mouseMovedHandler = nil
+        }
+        rawMouseDevices.removeAll()
+    }
+
+    func refreshRawMouseDevices() {
+        let connectedMice = GCMouse.mice()
+        let connectedIdentifiers = Set(connectedMice.map { ObjectIdentifier($0) })
+
+        for (identifier, mouse) in rawMouseDevices where connectedIdentifiers.contains(identifier) == false {
+            mouse.mouseInput?.mouseMovedHandler = nil
+            rawMouseDevices.removeValue(forKey: identifier)
+        }
+
+        for mouse in connectedMice {
+            let identifier = ObjectIdentifier(mouse)
+            guard rawMouseDevices[identifier] == nil else {
+                continue
+            }
+
+            mouse.handlerQueue = DispatchQueue.main
+            mouse.mouseInput?.mouseMovedHandler = { [weak self] _, deltaX, deltaY in
+                self?.handleRawMouseDeviceMotion(deltaX: Double(deltaX), deltaY: Double(deltaY))
+            }
+            rawMouseDevices[identifier] = mouse
+        }
+    }
+
+    var hasRawMouseDeviceInput: Bool {
+        rawMouseDevices.isEmpty == false
     }
 
     func updateCursorVisibility() {
