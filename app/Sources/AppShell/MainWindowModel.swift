@@ -63,6 +63,30 @@ final class MainWindowModel: ObservableObject {
         coordinator.stopRunningApplication(application)
     }
 
+    func resumeRunningApplication() {
+        guard let runningApplication else {
+            return
+        }
+
+        coordinator.launch(app: runningApplication)
+    }
+
+    func pauseRunningApplication() {
+        guard let activeApplication else {
+            return
+        }
+
+        coordinator.pauseStream(activeApplication)
+    }
+
+    func stopRunningApplication() {
+        guard let runningApplication else {
+            return
+        }
+
+        coordinator.stopRunningApplication(runningApplication)
+    }
+
     func registerLibraryWindow(_ window: NSWindow?) {
         coordinator.setLibraryWindow(window)
     }
@@ -85,6 +109,42 @@ final class MainWindowModel: ObservableObject {
         }
 
         return .connectionIssue
+    }
+
+    var runningApplication: HostApplication? {
+        applications.first(where: { $0.isRunning })
+    }
+
+    var activeApplication: HostApplication? {
+        guard let activeStreamApplicationID else {
+            return nil
+        }
+
+        return applications.first(where: { $0.id == activeStreamApplicationID })
+    }
+
+    var hasRunningApplication: Bool {
+        runningApplication != nil
+    }
+
+    var runningApplicationTitle: String {
+        runningApplication?.name ?? "Nothing running"
+    }
+
+    var canResumeRunningApplication: Bool {
+        guard let runningApplication else {
+            return false
+        }
+
+        return !launchInProgress && !stopInProgress && activeStreamApplicationID != runningApplication.id
+    }
+
+    var canPauseRunningApplication: Bool {
+        activeApplication != nil && !launchInProgress && !stopInProgress
+    }
+
+    var canStopRunningApplication: Bool {
+        hasRunningApplication && !launchInProgress && !stopInProgress
     }
 
     private func bindCoordinator() {
