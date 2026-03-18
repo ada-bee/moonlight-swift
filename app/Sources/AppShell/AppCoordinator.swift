@@ -59,7 +59,6 @@ final class AppCoordinator: ObservableObject {
     private let pairedHostStore: PairedHostStore
     private let pairingService: PairingService
     private let libraryClient: HostLibraryClient
-    private let posterImageLoader: PosterImageLoader
     private let wakeOnLANClient: WakeOnLANClient
     private var sessionObservers: Set<AnyCancellable> = []
     private var hasLoadedStartupState = false
@@ -84,7 +83,6 @@ final class AppCoordinator: ObservableObject {
         pairedHostStore: PairedHostStore = PairedHostStore(),
         pairingService: PairingService = PairingService(),
         libraryClient: HostLibraryClient = HostLibraryClient(),
-        posterImageLoader: PosterImageLoader = PosterImageLoader(),
         wakeOnLANClient: WakeOnLANClient = WakeOnLANClient()
     ) {
         self.appSupportPaths = appSupportPaths
@@ -92,7 +90,6 @@ final class AppCoordinator: ObservableObject {
         self.pairedHostStore = pairedHostStore
         self.pairingService = pairingService
         self.libraryClient = libraryClient
-        self.posterImageLoader = posterImageLoader
         self.wakeOnLANClient = wakeOnLANClient
     }
 
@@ -184,16 +181,6 @@ final class AppCoordinator: ObservableObject {
         refreshLibrary(force: force, showLoadingIndicator: true)
     }
 
-    func retryConnection() {
-        guard settings.host != nil else {
-            pairingState = .idle
-            libraryState = .idle
-            return
-        }
-
-        refreshLibrary(force: true)
-    }
-
     func setLibraryPollingActive(_ isActive: Bool) {
         isLibraryPollingActive = isActive
 
@@ -204,10 +191,9 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func stopRunningApplication(_ application: HostApplication) {
-        let shouldStopCurrentApplication = application.isRunning
-            || currentRunningApplicationID == application.id
-            || activeSessionController?.configuration.host.appID == application.id
+    private func stopRunningApplication(id applicationID: Int) {
+        let shouldStopCurrentApplication = currentRunningApplicationID == applicationID
+            || activeSessionController?.configuration.host.appID == applicationID
         guard shouldStopCurrentApplication, !stopInProgress, !launchInProgress else {
             return
         }
@@ -220,7 +206,7 @@ final class AppCoordinator: ObservableObject {
             }
 
             do {
-                if self.activeSessionController?.configuration.host.appID == application.id {
+                if self.activeSessionController?.configuration.host.appID == applicationID {
                     await self.teardownActiveSession(closeErrorWindow: true)
                 }
 
@@ -239,8 +225,22 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func pauseStream(_ application: HostApplication) {
-        guard activeSessionController?.configuration.host.appID == application.id else {
+    func launchDesktop() {
+        launchApplication(id: Self.desktopApplicationID)
+    }
+
+    func resumeRunningApplication() {
+        guard canResumeRunningApplication else {
+            return
+        }
+
+        launchApplication(id: currentRunningApplicationID)
+    }
+
+    func pauseRunningApplication() {
+        guard canPauseRunningApplication,
+              activeStreamApplicationID != nil
+        else {
             return
         }
 
@@ -251,34 +251,12 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func launchDesktop() {
-        launchApplication(id: Self.desktopApplicationID, name: Self.desktopApplicationName)
-    }
-
-    func resumeRunningApplication() {
-        guard canResumeRunningApplication else {
-            return
-        }
-
-        launchApplication(id: currentRunningApplicationID, name: runningApplicationTitle)
-    }
-
-    func pauseRunningApplication() {
-        guard canPauseRunningApplication,
-              let applicationID = activeStreamApplicationID
-        else {
-            return
-        }
-
-        pauseStream(application(for: applicationID))
-    }
-
     func stopRunningApplication() {
         guard canStopRunningApplication else {
             return
         }
 
-        stopRunningApplication(application(for: currentRunningApplicationID))
+        stopRunningApplication(id: currentRunningApplicationID)
     }
 
     func presentActiveStreamWindow() {
@@ -470,14 +448,8 @@ final class AppCoordinator: ObservableObject {
                     throw AppSettingsError.missingHost
                 }
 
-                var applications = try await self.libraryClient.fetchApplications(using: artifacts)
+                let applications = try await self.libraryClient.fetchApplications(using: artifacts)
                 let runningStatus = try await self.libraryClient.fetchRunningStatus(using: artifacts)
-
-                for index in applications.indices {
-                    if let posterURL = await self.posterImageLoader.ensurePoster(for: applications[index], using: artifacts) {
-                        applications[index].posterURL = posterURL
-                    }
-                }
 
                 guard !Task.isCancelled else {
                     return
@@ -504,10 +476,6 @@ final class AppCoordinator: ObservableObject {
                 }
             }
         }
-    }
-
-    func launch(app: HostApplication) {
-        launchApplication(id: app.id, name: app.name)
     }
 
     func setActiveStreamMouseMode(_ mouseMode: StreamMouseMode) {
@@ -583,7 +551,6 @@ final class AppCoordinator: ObservableObject {
         await teardownActiveSession(closeErrorWindow: true)
 
         try pairedHostStore.removeCurrent()
-        try clearPosterCacheIfNeeded()
 
         settings.host = nil
         settings.pendingPairingResetOnNextLaunch = false
@@ -652,7 +619,6 @@ final class AppCoordinator: ObservableObject {
         }
 
         try pairedHostStore.removeCurrent()
-        try clearPosterCacheIfNeeded()
 
         settings.host = nil
         settings.pendingPairingResetOnNextLaunch = false
@@ -674,7 +640,7 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func launchApplication(id applicationID: Int, name applicationName: String) {
+    private func launchApplication(id applicationID: Int) {
         guard !launchInProgress, !stopInProgress else {
             return
         }
@@ -770,18 +736,6 @@ final class AppCoordinator: ObservableObject {
                 try? await Task.sleep(nanoseconds: 350_000_000)
             }
         }
-    }
-
-    private func clearPosterCacheIfNeeded() throws {
-        let fileManager = appSupportPaths.fileManager
-        let posterCacheDirectoryURL = appSupportPaths.posterCacheDirectoryURL
-
-        guard fileManager.fileExists(atPath: posterCacheDirectoryURL.path) else {
-            return
-        }
-
-        try fileManager.removeItem(at: posterCacheDirectoryURL)
-        try appSupportPaths.createDirectoryIfNeeded(posterCacheDirectoryURL)
     }
 
     private func observe(_ sessionController: SessionController) {
@@ -1157,21 +1111,6 @@ final class AppCoordinator: ObservableObject {
 
     private static func randomPIN() -> String {
         String(format: "%04d", Int.random(in: 0...9999))
-    }
-
-    private func application(for applicationID: Int) -> HostApplication {
-        if case let .loaded(applications) = libraryState,
-           let application = applications.first(where: { $0.id == applicationID }) {
-            return application
-        }
-
-        return HostApplication(
-            id: applicationID,
-            name: displayName(for: applicationID),
-            posterURL: nil,
-            lastUpdated: nil,
-            isRunning: currentRunningApplicationID == applicationID
-        )
     }
 
     private func displayName(for applicationID: Int) -> String {

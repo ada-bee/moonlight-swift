@@ -71,9 +71,7 @@ private final class HostLibraryXMLParser: NSObject, XMLParserDelegate {
             applications.append(
                 HostApplication(
                     id: id,
-                    name: title,
-                    posterURL: nil,
-                    lastUpdated: nil
+                    name: title
                 )
             )
             self.currentAppFields = nil

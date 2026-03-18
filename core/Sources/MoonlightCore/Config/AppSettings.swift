@@ -130,16 +130,12 @@ public struct AppSettings: Codable, Sendable {
     public var host: HostAuthority?
     public var video: Video
     public var perGameLaunchPreferences: [String: AppGameLaunchPreferences]
-    public var closesLibraryWindowOnStreamStart: Bool
-    public var reopensLibraryWindowOnStreamStop: Bool
     public var pendingPairingResetOnNextLaunch: Bool
 
     private enum CodingKeys: String, CodingKey {
         case host
         case video
         case perGameLaunchPreferences
-        case closesLibraryWindowOnStreamStart
-        case reopensLibraryWindowOnStreamStop
         case pendingPairingResetOnNextLaunch
     }
 
@@ -147,15 +143,11 @@ public struct AppSettings: Codable, Sendable {
         host: HostAuthority?,
         video: Video,
         perGameLaunchPreferences: [String: AppGameLaunchPreferences],
-        closesLibraryWindowOnStreamStart: Bool,
-        reopensLibraryWindowOnStreamStop: Bool,
         pendingPairingResetOnNextLaunch: Bool
     ) {
         self.host = host
         self.video = video
         self.perGameLaunchPreferences = perGameLaunchPreferences
-        self.closesLibraryWindowOnStreamStart = closesLibraryWindowOnStreamStart
-        self.reopensLibraryWindowOnStreamStop = reopensLibraryWindowOnStreamStop
         self.pendingPairingResetOnNextLaunch = pendingPairingResetOnNextLaunch
     }
 
@@ -164,8 +156,6 @@ public struct AppSettings: Codable, Sendable {
         host = try container.decodeIfPresent(HostAuthority.self, forKey: .host)
         video = try container.decodeIfPresent(Video.self, forKey: .video) ?? AppSettings.initial.video
         perGameLaunchPreferences = try container.decodeIfPresent([String: AppGameLaunchPreferences].self, forKey: .perGameLaunchPreferences) ?? [:]
-        closesLibraryWindowOnStreamStart = try container.decodeIfPresent(Bool.self, forKey: .closesLibraryWindowOnStreamStart) ?? false
-        reopensLibraryWindowOnStreamStop = try container.decodeIfPresent(Bool.self, forKey: .reopensLibraryWindowOnStreamStop) ?? false
         pendingPairingResetOnNextLaunch = try container.decodeIfPresent(Bool.self, forKey: .pendingPairingResetOnNextLaunch) ?? false
     }
 }
@@ -182,8 +172,6 @@ public extension AppSettings {
             supportedResolutions: AppSettings.Video.defaultSupportedResolutions
         ),
         perGameLaunchPreferences: [:],
-        closesLibraryWindowOnStreamStart: false,
-        reopensLibraryWindowOnStreamStop: false,
         pendingPairingResetOnNextLaunch: false
     )
 

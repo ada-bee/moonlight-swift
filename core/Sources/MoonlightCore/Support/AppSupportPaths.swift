@@ -31,15 +31,10 @@ public struct AppSupportPaths {
         pairingDirectoryURL.appendingPathComponent("current", isDirectory: true)
     }
 
-    public var posterCacheDirectoryURL: URL {
-        rootDirectoryURL.appendingPathComponent("cache/posters", isDirectory: true)
-    }
-
     @discardableResult
     public func prepare() throws -> AppSupportPaths {
         try createDirectoryIfNeeded(rootDirectoryURL)
         try createDirectoryIfNeeded(pairingDirectoryURL)
-        try createDirectoryIfNeeded(posterCacheDirectoryURL)
         return self
     }
 
