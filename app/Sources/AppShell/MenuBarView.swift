@@ -1,6 +1,20 @@
 import MoonlightCore
 import SwiftUI
 
+private enum MenuBarIconAsset {
+    static let image: NSImage = {
+        guard let url = Bundle.module.url(forResource: "MenuBarIcon", withExtension: "svg"),
+              let image = NSImage(contentsOf: url)
+        else {
+            return NSImage(systemSymbolName: "display", accessibilityDescription: "GameStream") ?? NSImage()
+        }
+
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }()
+}
+
 struct MenuBarView: View {
     @Environment(\.openSettings) private var openSettings
 
@@ -282,8 +296,11 @@ struct MenuBarStatusIcon: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Image(systemName: "display")
-                .symbolRenderingMode(.hierarchical)
+            Image(nsImage: MenuBarIconAsset.image)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
 
             if let dotColor {
                 Circle()
@@ -296,7 +313,7 @@ struct MenuBarStatusIcon: View {
                     .offset(x: 2, y: 1)
             }
         }
-        .frame(width: 20, height: 14)
+        .frame(width: 20, height: 18)
     }
 
     private var dotColor: Color? {

@@ -135,7 +135,8 @@ let package = Package(
                 "Resources/Info.plist"
             ],
             resources: [
-                .copy("Resources/GameStream.icns")
+                .copy("Resources/GameStream.icns"),
+                .copy("Resources/MenuBarIcon.svg")
             ],
             linkerSettings: [
                 .unsafeFlags([
