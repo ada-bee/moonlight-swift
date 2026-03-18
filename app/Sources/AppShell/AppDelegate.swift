@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminationInProgress = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(.accessory)
 
         if let iconURL = Bundle.main.url(forResource: "GameStream", withExtension: "icns"),
            let iconImage = NSImage(contentsOf: iconURL) {
@@ -23,11 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         _ = sender
 
-        guard !flag else {
-            return false
+        if !flag {
+            coordinator?.presentActiveStreamWindow()
         }
 
-        return coordinator?.reopenLibraryWindowIfAvailable() ?? false
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

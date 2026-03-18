@@ -146,6 +146,6 @@ struct StreamCommands: Commands {
     }
 
     private var isStreamMenuAvailable: Bool {
-        coordinator.activeStreamApplicationID != nil
+        coordinator.streamActivityState != .inactive
     }
 }

@@ -17,10 +17,6 @@ struct SettingsView: View {
     @State private var resolutionHeightInput = ""
     @State private var streamFeedbackMessage: String?
     @State private var streamFeedbackIsError = false
-    @State private var closeLibraryWindowOnStreamStart = false
-    @State private var reopenLibraryWindowOnStreamStop = false
-    @State private var libraryWindowBehaviorFeedbackMessage: String?
-    @State private var libraryWindowBehaviorFeedbackIsError = false
     @State private var resetInProgress = false
 
     private static let standardFPSOptions = [30, 60, 90, 120]
@@ -29,25 +25,8 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 preferenceSection(
-                    title: "Client",
-                    description: "Choose how the library window behaves while a stream is active."
-                ) {
-                    settingsGroup {
-                        Toggle("Close library window when a stream starts", isOn: closeLibraryWindowOnStreamStartBinding)
-
-                        Toggle("Reopen library window when a stream stops", isOn: reopenLibraryWindowOnStreamStopBinding)
-                            .disabled(!closeLibraryWindowOnStreamStart)
-                    }
-
-                    feedbackText(
-                        libraryWindowBehaviorFeedbackMessage,
-                        isError: libraryWindowBehaviorFeedbackIsError
-                    )
-                }
-
-                preferenceSection(
                     title: "Stream",
-                    description: "Set the default windowed video mode used from the library and manage the available resolution list."
+                    description: "Set the default desktop stream mode and manage the available resolution list."
                 ) {
                     settingsGroup {
                         labeledRow("Resolution") {
@@ -220,7 +199,6 @@ struct SettingsView: View {
             clearHostFeedbackIfNeeded()
             syncSelectedResolutionIfNeeded()
             syncSelectedFPSIfNeeded()
-            loadLibraryWindowBehavior()
         }
         .onReceive(coordinator.$pairedHost) { _ in
             loadWakeOnLANConfiguration()
@@ -349,29 +327,6 @@ struct SettingsView: View {
         )
     }
 
-    private var closeLibraryWindowOnStreamStartBinding: Binding<Bool> {
-        Binding(
-            get: { closeLibraryWindowOnStreamStart },
-            set: { newValue in
-                closeLibraryWindowOnStreamStart = newValue
-                if !newValue {
-                    reopenLibraryWindowOnStreamStop = false
-                }
-                saveLibraryWindowBehavior()
-            }
-        )
-    }
-
-    private var reopenLibraryWindowOnStreamStopBinding: Binding<Bool> {
-        Binding(
-            get: { reopenLibraryWindowOnStreamStop },
-            set: { newValue in
-                reopenLibraryWindowOnStreamStop = closeLibraryWindowOnStreamStart && newValue
-                saveLibraryWindowBehavior()
-            }
-        )
-    }
-
     private var pairingStatusText: String? {
         if case let .inProgress(status, _) = coordinator.pairingState {
             return status
@@ -400,12 +355,6 @@ struct SettingsView: View {
         clearHostFeedbackIfNeeded()
         syncSelectedResolutionIfNeeded()
         syncSelectedFPSIfNeeded()
-        loadLibraryWindowBehavior()
-    }
-
-    private func loadLibraryWindowBehavior() {
-        closeLibraryWindowOnStreamStart = coordinator.settings.closesLibraryWindowOnStreamStart
-        reopenLibraryWindowOnStreamStop = coordinator.settings.reopensLibraryWindowOnStreamStop
     }
 
     private func clearHostFeedbackIfNeeded() {
@@ -445,24 +394,6 @@ struct SettingsView: View {
 
     private func syncSelectedFPSIfNeeded() {
         selectedFPS = coordinator.settings.video.fps
-    }
-
-    private func saveLibraryWindowBehavior() {
-        do {
-            try coordinator.saveLibraryWindowBehavior(
-                closesOnStreamStart: closeLibraryWindowOnStreamStart,
-                reopensOnStreamStop: reopenLibraryWindowOnStreamStop
-            )
-            loadLibraryWindowBehavior()
-            libraryWindowBehaviorFeedbackMessage = closeLibraryWindowOnStreamStart
-                ? "Library window behavior updated."
-                : "Library window auto-close disabled."
-            libraryWindowBehaviorFeedbackIsError = false
-        } catch {
-            loadLibraryWindowBehavior()
-            libraryWindowBehaviorFeedbackMessage = error.localizedDescription
-            libraryWindowBehaviorFeedbackIsError = true
-        }
     }
 
     private func saveDefaultVideoSettingsIfPossible() {
