@@ -305,6 +305,27 @@ final class AppCoordinator: ObservableObject {
         setDockVisibility(false)
     }
 
+    func stopSessionAndHideWindow() {
+        guard activeSessionController != nil || currentRunningApplicationID != 0 else {
+            hideActiveStreamWindow()
+            return
+        }
+
+        if canStopRunningApplication {
+            stopRunningApplication()
+            hideActiveStreamWindow()
+            return
+        }
+
+        stopActiveSession()
+        hideActiveStreamWindow()
+    }
+
+    func terminateApplication() {
+        stopSessionAndHideWindow()
+        NSApp.terminate(nil)
+    }
+
     private func showExistingStreamWindow() {
         setDockVisibility(true)
         activeStreamWindowController?.present()
@@ -724,6 +745,14 @@ final class AppCoordinator: ObservableObject {
         Task { [weak self] in
             await self?.teardownActiveSession(closeErrorWindow: true)
         }
+    }
+
+    var canHideActiveStreamWindow: Bool {
+        activeStreamWindowController?.isWindowVisible == true
+    }
+
+    var canStopSessionAndHideWindow: Bool {
+        activeSessionController != nil || currentRunningApplicationID != 0
     }
 
     func sendWakeOnLANMagicPacket() {
@@ -1214,6 +1243,12 @@ final class AppCoordinator: ObservableObject {
         }
         streamWindowController.onCloseRequest = { [weak self] in
             self?.hideActiveStreamWindow()
+        }
+        streamWindowController.onStopAndCloseRequest = { [weak self] in
+            self?.stopSessionAndHideWindow()
+        }
+        streamWindowController.onQuitRequest = { [weak self] in
+            self?.terminateApplication()
         }
 
         activeSessionController = sessionController

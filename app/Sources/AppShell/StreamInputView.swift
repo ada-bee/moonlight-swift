@@ -40,6 +40,9 @@ final class StreamInputView: NSView {
     private var remotelyPressedKeyboardInputs: [UInt16: PressedKeyState] = [:]
 
     var onLocalCommandSuppressionChanged: ((Bool) -> Void)?
+    var onHideStreamRequested: (() -> Void)?
+    var onStopSessionRequested: (() -> Void)?
+    var onQuitApplicationRequested: (() -> Void)?
 
     var rendererView: NSView? {
         didSet {
@@ -263,6 +266,10 @@ final class StreamInputView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if handleLocalShortcut(event) {
+            return
+        }
+
         let shouldForward = shouldForwardKeyboard(event)
 
         guard let state = keyboardState(for: event.keyCode), !state.isModifier else {
@@ -342,6 +349,32 @@ final class StreamInputView: NSView {
 }
 
 private extension StreamInputView {
+    func handleLocalShortcut(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        switch Int(event.keyCode) {
+        case kVK_ANSI_W:
+            if modifiers == [.command] {
+                onHideStreamRequested?()
+                return true
+            }
+
+            if modifiers == [.control, .shift] {
+                onStopSessionRequested?()
+                return true
+            }
+        case kVK_ANSI_Q:
+            if modifiers == [.command] {
+                onQuitApplicationRequested?()
+                return true
+            }
+        default:
+            break
+        }
+
+        return false
+    }
+
     private func keyboardState(for keyCode: UInt16) -> PressedKeyState? {
         WindowsVirtualKeyMap.map(keyCode: keyCode).map(PressedKeyState.init)
     }

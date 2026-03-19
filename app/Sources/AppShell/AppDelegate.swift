@@ -25,6 +25,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator?.stopActiveSession()
     }
 
+    @IBAction func performClose(_ sender: Any?) {
+        _ = sender
+        coordinator?.hideActiveStreamWindow()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         _ = sender
 

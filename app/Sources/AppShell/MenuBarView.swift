@@ -230,7 +230,7 @@ struct MenuBarView: View {
                 Button("Settings...", action: showSettings)
 
                 Button("Quit") {
-                    NSApp.terminate(nil)
+                    coordinator.terminateApplication()
                 }
             }
             .buttonStyle(.plain)

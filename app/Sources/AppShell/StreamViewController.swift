@@ -12,6 +12,21 @@ final class StreamViewController: NSViewController {
         set { inputView.onLocalCommandSuppressionChanged = newValue }
     }
 
+    var onHideStreamRequested: (() -> Void)? {
+        get { inputView.onHideStreamRequested }
+        set { inputView.onHideStreamRequested = newValue }
+    }
+
+    var onStopSessionRequested: (() -> Void)? {
+        get { inputView.onStopSessionRequested }
+        set { inputView.onStopSessionRequested = newValue }
+    }
+
+    var onQuitApplicationRequested: (() -> Void)? {
+        get { inputView.onQuitApplicationRequested }
+        set { inputView.onQuitApplicationRequested = newValue }
+    }
+
     var mouseMode: StreamMouseMode {
         inputView.mouseMode
     }

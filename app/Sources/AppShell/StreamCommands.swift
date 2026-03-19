@@ -37,6 +37,31 @@ struct StreamCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Stream") {
+            Button("Show Stream") {
+                coordinator.handlePrimaryActivationRequest()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(!coordinator.canLaunchDesktop && !coordinator.canResumeRunningApplication && coordinator.activeSessionController == nil)
+
+            Button("Hide Stream") {
+                coordinator.hideActiveStreamWindow()
+            }
+            .keyboardShortcut("w", modifiers: [.command])
+            .disabled(!coordinator.canHideActiveStreamWindow)
+
+            Button("Stop Session") {
+                coordinator.stopSessionAndHideWindow()
+            }
+            .keyboardShortcut("w", modifiers: [.control, .shift])
+            .disabled(!coordinator.canStopSessionAndHideWindow)
+
+            Button("Quit GameStream") {
+                coordinator.terminateApplication()
+            }
+            .keyboardShortcut("q", modifiers: [.command])
+
+            Divider()
+
             Toggle("Fullscreen", isOn: fullscreenBinding)
             .disabled(!isStreamMenuAvailable || coordinator.activeStreamScreenMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
 
@@ -58,6 +83,14 @@ struct StreamCommands: Commands {
 
             Toggle("Direct Mouse Input", isOn: rawMouseInputBinding)
                 .disabled(!isStreamMenuAvailable || coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+        }
+
+        CommandGroup(replacing: .saveItem) {
+            Button("Hide Stream") {
+                coordinator.hideActiveStreamWindow()
+            }
+            .keyboardShortcut("w", modifiers: [.command])
+            .disabled(!coordinator.canHideActiveStreamWindow)
         }
     }
 

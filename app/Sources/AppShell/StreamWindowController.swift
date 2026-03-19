@@ -16,6 +16,8 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
     let sessionController: SessionController
     var onVisibilityChange: ((Bool) -> Void)?
     var onCloseRequest: (() -> Void)?
+    var onStopAndCloseRequest: (() -> Void)?
+    var onQuitRequest: (() -> Void)?
 
     private let streamViewController: StreamViewController
     private let launchesFullscreen: Bool
@@ -57,6 +59,15 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         streamViewController.onLocalCommandSuppressionChanged = { [weak self] isSuppressed in
             self?.setLocalCommandSuppressionActive(isSuppressed)
+        }
+        streamViewController.onHideStreamRequested = { [weak self] in
+            self?.onCloseRequest?()
+        }
+        streamViewController.onStopSessionRequested = { [weak self] in
+            self?.onStopAndCloseRequest?()
+        }
+        streamViewController.onQuitApplicationRequested = { [weak self] in
+            self?.onQuitRequest?()
         }
         applyWindowSizing(isFullscreen: false)
         streamViewController.setFullscreenPresentation(false)
