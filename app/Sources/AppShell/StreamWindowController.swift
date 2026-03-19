@@ -14,6 +14,8 @@ private final class StreamWindow: NSWindow {
 
 final class StreamWindowController: NSWindowController, NSWindowDelegate {
     let sessionController: SessionController
+    var onVisibilityChange: ((Bool) -> Void)?
+    var onCloseRequest: (() -> Void)?
 
     private let streamViewController: StreamViewController
     private let launchesFullscreen: Bool
@@ -21,6 +23,8 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
     private var rawMouseCaptureEnabled = false
     private var rawMouseCursorHidden = false
     private var localCommandSuppressionActive = false
+    private var isProgrammaticHideInProgress = false
+    private var allowsWindowClosing = false
 
     init(sessionController: SessionController, launchesFullscreen: Bool = false, usesRawMouse: Bool = false) {
         self.sessionController = sessionController
@@ -75,6 +79,10 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
         return window.styleMask.contains(.fullScreen)
     }
 
+    var isWindowVisible: Bool {
+        window?.isVisible == true
+    }
+
     func toggleFullScreen() {
         window?.toggleFullScreen(nil)
     }
@@ -91,6 +99,8 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func present() {
         showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        onVisibilityChange?(true)
 
         guard launchesFullscreen, isFullscreen == false else {
             return
@@ -107,6 +117,27 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func releaseAllRemoteInputs() {
         streamViewController.releaseAllRemoteInputs()
+    }
+
+    func hideWindow() {
+        guard let window else {
+            return
+        }
+
+        isProgrammaticHideInProgress = true
+        performWindowInputReset(disableRawCapture: true, resetInputState: false)
+        window.orderOut(nil)
+        onVisibilityChange?(false)
+        isProgrammaticHideInProgress = false
+    }
+
+    func closeWindow() {
+        guard let window else {
+            return
+        }
+
+        allowsWindowClosing = true
+        window.close()
     }
 
     func resetLocalInputState() {
@@ -152,7 +183,24 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         _ = notification
+
+        if !isProgrammaticHideInProgress {
+            onVisibilityChange?(false)
+        }
+
         performWindowInputReset(disableRawCapture: true, resetInputState: false)
+        allowsWindowClosing = false
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        _ = sender
+
+        guard !allowsWindowClosing else {
+            return true
+        }
+
+        onCloseRequest?()
+        return false
     }
 }
 

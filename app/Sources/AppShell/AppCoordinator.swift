@@ -75,6 +75,7 @@ final class AppCoordinator: ObservableObject {
     private var queuedLibraryRefreshForce = false
     private var queuedLibraryRefreshShowsLoading = false
     private var pollsSinceLastBackgroundRefresh = 0
+    private var isDockVisible = false
 
     private enum LibraryPollingDefaults {
         static let intervalNanoseconds: UInt64 = 3_000_000_000
@@ -107,6 +108,8 @@ final class AppCoordinator: ObservableObject {
 
         hasLoadedStartupState = true
         defer { hasCompletedStartupLoad = true }
+
+        setDockVisibility(false)
 
         do {
             _ = try appSupportPaths.prepare()
@@ -236,6 +239,27 @@ final class AppCoordinator: ObservableObject {
         launchApplication(id: Self.desktopApplicationID)
     }
 
+    func handlePrimaryActivationRequest() {
+        if let activeStreamWindowController {
+            if activeStreamWindowController.isWindowVisible {
+                presentActiveStreamWindow()
+                return
+            }
+
+            showExistingStreamWindow()
+            return
+        }
+
+        if canResumeRunningApplication {
+            resumeRunningApplication()
+            return
+        }
+
+        if canLaunchDesktop {
+            launchDesktop()
+        }
+    }
+
     func resumeRunningApplication() {
         guard canResumeRunningApplication else {
             return
@@ -267,8 +291,28 @@ final class AppCoordinator: ObservableObject {
     }
 
     func presentActiveStreamWindow() {
+        setDockVisibility(true)
         activeStreamWindowController?.present()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func hideActiveStreamWindow() {
+        guard let activeStreamWindowController else {
+            return
+        }
+
+        activeStreamWindowController.hideWindow()
+        setDockVisibility(false)
+    }
+
+    private func showExistingStreamWindow() {
+        setDockVisibility(true)
+        activeStreamWindowController?.present()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var isErrorWindowVisible: Bool {
+        activeErrorWindowController?.window?.isVisible == true
     }
 
     var activeStreamApplicationID: Int? {
@@ -851,16 +895,18 @@ final class AppCoordinator: ObservableObject {
                     if state == .failed {
                         self.activeSessionController = nil
                         self.activeStreamMouseMode = nil
-                        self.activeStreamWindowController?.close()
+                        self.activeStreamWindowController?.closeWindow()
                         self.activeStreamWindowController = nil
+                        self.setDockVisibility(false)
                     }
                 case .stopped:
                     self.launchInProgress = false
                     self.isLibraryStale = true
                     self.activeSessionController = nil
                     self.activeStreamMouseMode = nil
-                    self.activeStreamWindowController?.close()
+                    self.activeStreamWindowController?.closeWindow()
                     self.activeStreamWindowController = nil
+                    self.setDockVisibility(false)
                 }
             }
             .store(in: &sessionObservers)
@@ -1143,6 +1189,32 @@ final class AppCoordinator: ObservableObject {
         sessionController.onInputResetRequested = { [weak streamWindowController] in
             streamWindowController?.resetLocalInputState()
         }
+        errorWindowController.onVisibilityChange = { [weak self] isVisible in
+            guard let self else {
+                return
+            }
+
+            if isVisible {
+                self.setDockVisibility(true)
+            } else if self.activeStreamWindowController?.isWindowVisible != true {
+                self.setDockVisibility(false)
+            }
+        }
+        streamWindowController.onVisibilityChange = { [weak self, weak streamWindowController] isVisible in
+            guard let self else {
+                return
+            }
+
+            if isVisible {
+                self.setDockVisibility(true)
+            } else if self.activeStreamWindowController === streamWindowController,
+                      !self.isErrorWindowVisible {
+                self.setDockVisibility(false)
+            }
+        }
+        streamWindowController.onCloseRequest = { [weak self] in
+            self?.hideActiveStreamWindow()
+        }
 
         activeSessionController = sessionController
         activeErrorWindowController = errorWindowController
@@ -1186,7 +1258,9 @@ final class AppCoordinator: ObservableObject {
         }
         sessionObservers.removeAll()
 
-        streamWindowController?.close()
+        setDockVisibility(false)
+
+        streamWindowController?.closeWindow()
         if closeErrorWindow {
             errorWindowController?.close()
         }
@@ -1219,5 +1293,19 @@ final class AppCoordinator: ObservableObject {
         }
 
         return "Running App"
+    }
+
+    private func setDockVisibility(_ isVisible: Bool) {
+        guard isDockVisible != isVisible else {
+            return
+        }
+
+        let targetPolicy: NSApplication.ActivationPolicy = isVisible ? .regular : .accessory
+        NSApp.setActivationPolicy(targetPolicy)
+        isDockVisible = isVisible
+
+        if isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }

@@ -4,6 +4,7 @@ import MoonlightCore
 
 @MainActor
 final class ErrorWindowController: NSWindowController {
+    var onVisibilityChange: ((Bool) -> Void)?
     private var cancellables: Set<AnyCancellable> = []
 
     init(sessionController: SessionController) {
@@ -25,6 +26,7 @@ final class ErrorWindowController: NSWindowController {
                 }
                 self.showWindow(nil)
                 self.window?.orderFrontRegardless()
+                self.onVisibilityChange?(true)
             }
             .store(in: &cancellables)
     }
@@ -32,6 +34,11 @@ final class ErrorWindowController: NSWindowController {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func close() {
+        super.close()
+        onVisibilityChange?(false)
     }
 }
 
