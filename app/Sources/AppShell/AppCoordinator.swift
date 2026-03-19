@@ -57,7 +57,6 @@ final class AppCoordinator: ObservableObject {
     @Published private(set) var launchInProgress = false
     @Published private(set) var stopInProgress = false
     @Published private(set) var libraryActionError: String?
-    @Published private(set) var isLibraryStale = false
     @Published private(set) var hasCompletedStartupLoad = false
     @Published private(set) var currentRunningApplicationID = 0
 
@@ -69,18 +68,12 @@ final class AppCoordinator: ObservableObject {
     private let wakeOnLANClient: WakeOnLANClient
     private var sessionObservers: Set<AnyCancellable> = []
     private var hasLoadedStartupState = false
-    private var isLibraryPollingActive = false
-    private var libraryPollingTask: Task<Void, Never>?
+    private var hostStateRefreshTask: Task<Void, Never>?
+    private var queuedHostStateRefresh = false
     private var libraryRefreshTask: Task<Void, Never>?
     private var queuedLibraryRefreshForce = false
     private var queuedLibraryRefreshShowsLoading = false
-    private var pollsSinceLastBackgroundRefresh = 0
     private var isDockVisible = false
-
-    private enum LibraryPollingDefaults {
-        static let intervalNanoseconds: UInt64 = 3_000_000_000
-        static let pollsPerApplicationRefresh = 10
-    }
 
     private static let desktopApplicationID = MVPConfiguration.fallback.host.appID
     private static let desktopApplicationName = "Desktop"
@@ -119,7 +112,6 @@ final class AppCoordinator: ObservableObject {
             try reloadPairedHostState()
             sendWakeOnLANOnLaunchIfConfigured()
             refreshLibrary()
-            restartLibraryPollingIfNeeded()
         } catch {
             pairingState = .failed(error.localizedDescription)
             libraryState = .idle
@@ -170,7 +162,6 @@ final class AppCoordinator: ObservableObject {
                         try self.settingsStore.save(self.settings)
                         self.pairingState = .idle
                         self.refreshLibrary(force: true)
-                        self.restartLibraryPollingIfNeeded()
                     }
                 } catch {
                     await MainActor.run {
@@ -191,14 +182,8 @@ final class AppCoordinator: ObservableObject {
         refreshLibrary(force: force, showLoadingIndicator: true)
     }
 
-    func setLibraryPollingActive(_ isActive: Bool) {
-        isLibraryPollingActive = isActive
-
-        if isActive {
-            restartLibraryPollingIfNeeded()
-        } else {
-            stopLibraryPolling()
-        }
+    func menuBarDidOpen() {
+        scheduleHostStateRefresh()
     }
 
     private func stopRunningApplication(id applicationID: Int) {
@@ -223,9 +208,8 @@ final class AppCoordinator: ObservableObject {
                 try await self.stopHostApplication()
 
                 await MainActor.run {
-                    self.isLibraryStale = true
                     self.libraryActionError = nil
-                    self.pollsSinceLastBackgroundRefresh = LibraryPollingDefaults.pollsPerApplicationRefresh
+                    self.scheduleHostStateRefresh()
                 }
             } catch {
                 await MainActor.run {
@@ -279,6 +263,7 @@ final class AppCoordinator: ObservableObject {
 
         Task { [weak self] in
             await self?.teardownActiveSession(closeErrorWindow: true)
+            await self?.scheduleHostStateRefreshAfterEvent()
         }
     }
 
@@ -651,10 +636,12 @@ final class AppCoordinator: ObservableObject {
     func resetPairing() async throws {
         libraryRefreshTask?.cancel()
         libraryRefreshTask = nil
+        hostStateRefreshTask?.cancel()
+        hostStateRefreshTask = nil
+        queuedHostStateRefresh = false
         queuedLibraryRefreshForce = false
         queuedLibraryRefreshShowsLoading = false
 
-        stopLibraryPolling()
         await teardownActiveSession(closeErrorWindow: true)
 
         try pairedHostStore.removeCurrent()
@@ -669,7 +656,6 @@ final class AppCoordinator: ObservableObject {
         launchInProgress = false
         stopInProgress = false
         libraryActionError = nil
-        isLibraryStale = false
         currentRunningApplicationID = 0
     }
 
@@ -736,9 +722,7 @@ final class AppCoordinator: ObservableObject {
         libraryState = .idle
         stopInProgress = false
         libraryActionError = nil
-        isLibraryStale = false
         currentRunningApplicationID = 0
-        stopLibraryPolling()
     }
 
     func stopActiveSession() {
@@ -928,14 +912,15 @@ final class AppCoordinator: ObservableObject {
                         self.activeStreamWindowController = nil
                         self.setDockVisibility(false)
                     }
+                    self.scheduleHostStateRefresh()
                 case .stopped:
                     self.launchInProgress = false
-                    self.isLibraryStale = true
                     self.activeSessionController = nil
                     self.activeStreamMouseMode = nil
                     self.activeStreamWindowController?.closeWindow()
                     self.activeStreamWindowController = nil
                     self.setDockVisibility(false)
+                    self.scheduleHostStateRefresh()
                 }
             }
             .store(in: &sessionObservers)
@@ -950,10 +935,6 @@ final class AppCoordinator: ObservableObject {
 
         switch result {
         case let .success((applications, runningStatus)):
-            if force || isLibraryStale {
-                isLibraryStale = false
-            }
-
             if stopInProgress, runningStatus.currentApplicationID == 0 {
                 stopInProgress = false
                 libraryActionError = nil
@@ -1010,48 +991,46 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func restartLibraryPollingIfNeeded() {
-        guard isLibraryPollingActive, pairedHost != nil, libraryPollingTask == nil else {
+    private func scheduleHostStateRefresh() {
+        guard pairedHost != nil else {
             return
         }
 
-        libraryPollingTask = Task { [weak self] in
+        if hostStateRefreshTask != nil {
+            queuedHostStateRefresh = true
+            return
+        }
+
+        hostStateRefreshTask = Task { [weak self] in
             guard let self else {
                 return
             }
 
-            while !Task.isCancelled {
-                await self.pollRunningStatus()
-                if Task.isCancelled {
-                    break
-                }
+            await self.refreshHostState()
+            self.hostStateRefreshTask = nil
 
-                self.pollsSinceLastBackgroundRefresh += 1
-                if self.isLibraryStale || self.pollsSinceLastBackgroundRefresh >= LibraryPollingDefaults.pollsPerApplicationRefresh {
-                    self.pollsSinceLastBackgroundRefresh = 0
-                    self.refreshLibrary(force: true, showLoadingIndicator: false)
-                }
-
-                do {
-                    try await Task.sleep(nanoseconds: LibraryPollingDefaults.intervalNanoseconds)
-                } catch {
-                    break
-                }
-            }
-
-            await MainActor.run {
-                self.libraryPollingTask = nil
+            if self.queuedHostStateRefresh {
+                self.queuedHostStateRefresh = false
+                self.scheduleHostStateRefresh()
             }
         }
     }
 
-    private func stopLibraryPolling() {
-        libraryPollingTask?.cancel()
-        libraryPollingTask = nil
-        pollsSinceLastBackgroundRefresh = 0
+    private func scheduleHostStateRefreshAfterEvent() async {
+        guard pairedHost != nil else {
+            return
+        }
+
+        if let hostStateRefreshTask {
+            queuedHostStateRefresh = true
+            await hostStateRefreshTask.value
+            return
+        }
+
+        await refreshHostState()
     }
 
-    private func pollRunningStatus() async {
+    private func refreshHostState() async {
         guard pairedHost != nil else {
             return
         }
@@ -1062,11 +1041,30 @@ final class AppCoordinator: ObservableObject {
             }
 
             let runningStatus = try await libraryClient.fetchRunningStatus(using: artifacts)
-            await MainActor.run {
-                self.applyRunningStatus(runningStatus)
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            applyRunningStatus(runningStatus)
+
+            if shouldRefreshLibrary(for: runningStatus.currentApplicationID) {
+                refreshLibrary(force: true, showLoadingIndicator: false)
             }
         } catch {
         }
+    }
+
+    private func shouldRefreshLibrary(for runningApplicationID: Int) -> Bool {
+        guard case let .loaded(applications) = libraryState else {
+            return true
+        }
+
+        guard runningApplicationID != 0 else {
+            return false
+        }
+
+        return applications.contains(where: { $0.id == runningApplicationID }) == false
     }
 
     private func currentRunningApplicationIDForLaunch() async -> Int {
@@ -1276,7 +1274,6 @@ final class AppCoordinator: ObservableObject {
         try await libraryClient.stopRunningApplication(using: artifacts)
         await MainActor.run {
             self.applyRunningStatus(HostRunningStatus(currentApplicationID: 0))
-            self.isLibraryStale = true
         }
     }
 

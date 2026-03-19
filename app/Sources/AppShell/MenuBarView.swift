@@ -60,6 +60,9 @@ struct MenuBarView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            coordinator.menuBarDidOpen()
+        }
     }
 
     private var sessionSection: some View {

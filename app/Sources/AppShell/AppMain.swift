@@ -3,7 +3,6 @@ import SwiftUI
 
 @main
 struct AppMain: App {
-    @Environment(\.scenePhase) private var scenePhase
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var coordinator: AppCoordinator
     @State private var didStartCoordinator = false
@@ -24,10 +23,6 @@ struct AppMain: App {
                     didStartCoordinator = true
                     appDelegate.coordinator = coordinator
                     coordinator.loadStartupState()
-                    coordinator.setLibraryPollingActive(scenePhase == .active)
-                }
-                .onChange(of: scenePhase) { _, newPhase in
-                    coordinator.setLibraryPollingActive(newPhase == .active)
                 }
                 .frame(minWidth: 320)
         } label: {
