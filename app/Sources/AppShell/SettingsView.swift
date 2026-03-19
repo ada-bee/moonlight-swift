@@ -26,7 +26,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 preferenceSection(
                     title: "Stream",
-                    description: "Set the default desktop stream mode and manage the available resolution list."
+                    description: "Set the single windowed stream resolution and frame rate, and manage the available resolution list."
                 ) {
                     settingsGroup {
                         labeledRow("Resolution") {
@@ -270,10 +270,7 @@ struct SettingsView: View {
     }
 
     private var defaultResolution: MVPConfiguration.Video.Resolution {
-        MVPConfiguration.Video.Resolution(
-            width: coordinator.settings.video.width,
-            height: coordinator.settings.video.height
-        )
+        coordinator.windowedStreamResolution
     }
 
     private var candidateResolution: MVPConfiguration.Video.Resolution? {
@@ -312,7 +309,7 @@ struct SettingsView: View {
             get: { selectedResolutionID },
             set: { newValue in
                 selectedResolutionID = newValue
-                saveDefaultVideoSettingsIfPossible()
+                saveWindowedVideoSettingsIfPossible()
             }
         )
     }
@@ -322,7 +319,7 @@ struct SettingsView: View {
             get: { selectedFPS },
             set: { newValue in
                 selectedFPS = newValue
-                saveDefaultVideoSettingsIfPossible()
+                saveWindowedVideoSettingsIfPossible()
             }
         )
     }
@@ -345,7 +342,7 @@ struct SettingsView: View {
 
     private var fpsOptions: [Int] {
         var options = Set(Self.standardFPSOptions)
-        options.insert(coordinator.settings.video.fps)
+        options.insert(coordinator.windowedStreamFPS)
         return options.sorted()
     }
 
@@ -393,17 +390,17 @@ struct SettingsView: View {
     }
 
     private func syncSelectedFPSIfNeeded() {
-        selectedFPS = coordinator.settings.video.fps
+        selectedFPS = coordinator.windowedStreamFPS
     }
 
-    private func saveDefaultVideoSettingsIfPossible() {
+    private func saveWindowedVideoSettingsIfPossible() {
         guard let resolution = supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID }) else {
             return
         }
 
         do {
-            try coordinator.saveDefaultVideoSettings(resolution: resolution, fps: selectedFPS)
-            streamFeedbackMessage = "Default stream settings updated."
+            try coordinator.saveWindowedVideoSettings(resolution: resolution, fps: selectedFPS)
+            streamFeedbackMessage = "Windowed stream settings updated."
             streamFeedbackIsError = false
             syncSelectedResolutionIfNeeded()
             syncSelectedFPSIfNeeded()
@@ -484,7 +481,7 @@ struct SettingsView: View {
         selectedResolutionID = resolutionID(for: resolution)
         resolutionWidthInput = ""
         resolutionHeightInput = ""
-        saveDefaultVideoSettingsIfPossible()
+        saveWindowedVideoSettingsIfPossible()
     }
 
     private func removeSelectedResolution() {
@@ -495,7 +492,7 @@ struct SettingsView: View {
         let updatedResolutions = supportedResolutions.filter { $0 != selectedSupportedResolution }
         saveSupportedResolutions(updatedResolutions, successMessage: "Resolution list updated.")
         syncSelectedResolutionIfNeeded()
-        saveDefaultVideoSettingsIfPossible()
+        saveWindowedVideoSettingsIfPossible()
     }
 
     private func resetSupportedResolutions() {
@@ -504,7 +501,7 @@ struct SettingsView: View {
             successMessage: "Default resolutions restored."
         )
         syncSelectedResolutionIfNeeded()
-        saveDefaultVideoSettingsIfPossible()
+        saveWindowedVideoSettingsIfPossible()
     }
 
     private func saveSupportedResolutions(

@@ -48,47 +48,58 @@ struct MenuBarView: View {
     }
 
     private var runningSessionContent: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(sessionStatusText)
-                    .font(.headline)
-                    .foregroundStyle(sessionStatusColor)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(sessionStatusText)
+                        .font(.headline)
+                        .foregroundStyle(sessionStatusColor)
+                        .lineLimit(1)
 
-                Text(streamInfoText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    Text(streamInfoText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 8) {
+                    if coordinator.canPauseRunningApplication {
+                        actionGlyphButton(
+                            systemImage: "pause.fill",
+                            title: "Pause",
+                            action: coordinator.pauseRunningApplication
+                        )
+                    }
+
+                    if coordinator.canResumeRunningApplication {
+                        actionGlyphButton(
+                            systemImage: "play.fill",
+                            title: "Resume",
+                            action: coordinator.resumeRunningApplication
+                        )
+                    }
+
+                    if coordinator.canStopRunningApplication {
+                        actionGlyphButton(
+                            systemImage: "stop.fill",
+                            title: "Stop",
+                            role: .destructive,
+                            action: coordinator.stopRunningApplication
+                        )
+                    }
+                }
             }
 
-            Spacer(minLength: 8)
+            Toggle("Fullscreen", isOn: fullscreenBinding)
+                .toggleStyle(.switch)
+                .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
 
-            HStack(spacing: 8) {
-                if coordinator.canPauseRunningApplication {
-                    actionGlyphButton(
-                        systemImage: "pause.fill",
-                        title: "Pause",
-                        action: coordinator.pauseRunningApplication
-                    )
-                }
-
-                if coordinator.canResumeRunningApplication {
-                    actionGlyphButton(
-                        systemImage: "play.fill",
-                        title: "Resume",
-                        action: coordinator.resumeRunningApplication
-                    )
-                }
-
-                if coordinator.canStopRunningApplication {
-                    actionGlyphButton(
-                        systemImage: "stop.fill",
-                        title: "Stop",
-                        role: .destructive,
-                        action: coordinator.stopRunningApplication
-                    )
-                }
-            }
+            Text(fullscreenHelpText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -213,10 +224,8 @@ struct MenuBarView: View {
     }
 
     private var streamInfoText: String {
-        let resolution = coordinator.currentRunningApplicationResolution
-            ?? coordinator.activeStreamResolution
-        let fps = coordinator.currentRunningApplicationFPS
-            ?? coordinator.activeStreamFPS
+        let resolution = coordinator.currentStreamResolution
+        let fps = coordinator.currentStreamFPS
 
         if let resolution, let fps {
             return "\(resolution.width) x \(resolution.height) @ \(fps)"
@@ -231,6 +240,23 @@ struct MenuBarView: View {
         }
 
         return "Stream details unavailable"
+    }
+
+    private var fullscreenBinding: Binding<Bool> {
+        Binding(
+            get: { coordinator.streamMode == .fullscreen },
+            set: { isSelected in
+                coordinator.setStreamMode(isSelected ? .fullscreen : .windowed)
+            }
+        )
+    }
+
+    private var fullscreenHelpText: String {
+        if coordinator.streamMode == .fullscreen {
+            return "Fullscreen uses raw mouse input and reconnects at the display's native size and refresh rate."
+        }
+
+        return "Windowed uses absolute cursor input and the resolution and frame rate from Settings."
     }
 
     private var primaryActionTitle: String {

@@ -63,26 +63,21 @@ struct StreamCommands: Commands {
             Divider()
 
             Toggle("Fullscreen", isOn: fullscreenBinding)
-            .disabled(!isStreamMenuAvailable || coordinator.activeStreamScreenMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+            .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
 
             Menu("Resolution") {
                 ForEach(resolutionOptions, id: \.self) { option in
                     Toggle(option.label, isOn: resolutionBinding(for: option.resolution))
                 }
             }
-            .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
+            .disabled(!isResolutionMenuEnabled)
 
             Menu("Frame Rate") {
                 ForEach(fpsOptions, id: \.self) { option in
                     Toggle(option.label, isOn: fpsBinding(for: option.fps))
                 }
             }
-            .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
-
-            Divider()
-
-            Toggle("Direct Mouse Input", isOn: rawMouseInputBinding)
-                .disabled(!isStreamMenuAvailable || coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+            .disabled(!isResolutionMenuEnabled)
         }
 
         CommandGroup(replacing: .saveItem) {
@@ -94,55 +89,46 @@ struct StreamCommands: Commands {
         }
     }
 
-    private var rawMouseInputBinding: Binding<Bool> {
-        Binding(
-            get: { coordinator.activeStreamMouseMode == .raw },
-            set: { isSelected in
-                coordinator.setActiveStreamMouseMode(isSelected ? .raw : .absolute)
-            }
-        )
-    }
-
     private var fullscreenBinding: Binding<Bool> {
         Binding(
-            get: { coordinator.activeStreamScreenMode == .fullscreen },
+            get: { coordinator.streamMode == .fullscreen },
             set: { isSelected in
-                coordinator.setActiveStreamScreenMode(isSelected ? .fullscreen : .windowed)
+                coordinator.setStreamMode(isSelected ? .fullscreen : .windowed)
             }
         )
     }
 
     private func resolutionBinding(for resolution: MVPConfiguration.Video.Resolution) -> Binding<Bool> {
         Binding(
-            get: { coordinator.activeStreamResolution == resolution },
+            get: { coordinator.windowedStreamResolution == resolution },
             set: { isSelected in
                 guard isSelected else {
                     return
                 }
 
-                coordinator.setActiveStreamResolution(resolution)
+                coordinator.setWindowedStreamResolution(resolution)
             }
         )
     }
 
     private func fpsBinding(for fps: Int) -> Binding<Bool> {
         Binding(
-            get: { coordinator.activeStreamFPS == fps },
+            get: { coordinator.windowedStreamFPS == fps },
             set: { isSelected in
                 guard isSelected else {
                     return
                 }
 
-                coordinator.setActiveStreamFPS(fps)
+                coordinator.setWindowedStreamFPS(fps)
             }
         )
     }
 
     private var resolutionOptions: [ResolutionOption] {
         var options = coordinator.settings.video.supportedResolutions.map { ResolutionOption(resolution: $0) }
-        if let activeResolution = coordinator.activeStreamResolution,
-           options.contains(where: { $0.resolution == activeResolution }) == false {
-            options.append(ResolutionOption(resolution: activeResolution))
+        let selectedResolution = coordinator.windowedStreamResolution
+        if options.contains(where: { $0.resolution == selectedResolution }) == false {
+            options.append(ResolutionOption(resolution: selectedResolution))
             options.sort { lhs, rhs in
                 let lhsPixels = lhs.resolution.width * lhs.resolution.height
                 let rhsPixels = rhs.resolution.width * rhs.resolution.height
@@ -163,22 +149,16 @@ struct StreamCommands: Commands {
 
     private var fpsOptions: [FPSOption] {
         var options = Self.standardFPSOptions
-        if let activeFPS = coordinator.activeStreamFPS,
-           options.contains(where: { $0.fps == activeFPS }) == false {
-            options.append(.init(fps: activeFPS))
+        if options.contains(where: { $0.fps == coordinator.windowedStreamFPS }) == false {
+            options.append(.init(fps: coordinator.windowedStreamFPS))
             options.sort { $0.fps < $1.fps }
         }
         return options
     }
 
     private var isResolutionMenuEnabled: Bool {
-        coordinator.activeStreamSupportsResolutionSelection
-            && coordinator.activeStreamScreenMode == .windowed
+        coordinator.streamMode == .windowed
             && !coordinator.launchInProgress
             && !coordinator.stopInProgress
-    }
-
-    private var isStreamMenuAvailable: Bool {
-        coordinator.streamActivityState != .inactive
     }
 }

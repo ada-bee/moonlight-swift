@@ -65,10 +65,6 @@ final class StreamViewController: NSViewController {
         inputView.setMouseCaptureState(isActive)
     }
 
-    func setMouseMode(_ mouseMode: StreamMouseMode) {
-        inputView.mouseMode = mouseMode
-    }
-
     func releaseAllRemoteInputs() {
         inputView.releaseAllRemoteInputs()
     }

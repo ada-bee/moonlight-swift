@@ -1,58 +1,21 @@
 import Foundation
 
-public struct AppGameLaunchPreferences: Codable, Sendable, Equatable {
-    public var launchesFullscreen: Bool
-    public var usesRawMouse: Bool
-    public var windowedResolution: MVPConfiguration.Video.Resolution
-    public var windowedFPS: Int
-
-    public init(
-        launchesFullscreen: Bool,
-        usesRawMouse: Bool,
-        windowedResolution: MVPConfiguration.Video.Resolution,
-        windowedFPS: Int
-    ) {
-        self.launchesFullscreen = launchesFullscreen
-        self.usesRawMouse = usesRawMouse
-        self.windowedResolution = windowedResolution
-        self.windowedFPS = windowedFPS
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case launchesFullscreen
-        case usesRawMouse
-        case windowedResolution
-        case windowedFPS
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        launchesFullscreen = try container.decodeIfPresent(Bool.self, forKey: .launchesFullscreen) ?? false
-        usesRawMouse = try container.decodeIfPresent(Bool.self, forKey: .usesRawMouse) ?? false
-        windowedResolution = try container.decodeIfPresent(MVPConfiguration.Video.Resolution.self, forKey: .windowedResolution) ?? .init(width: 2560, height: 1440)
-        windowedFPS = try container.decodeIfPresent(Int.self, forKey: .windowedFPS) ?? 120
-    }
-}
-
 public struct AppSettings: Codable, Sendable {
     public struct Video: Codable, Sendable {
-        public var width: Int
-        public var height: Int
+        public var resolution: MVPConfiguration.Video.Resolution
         public var fps: Int
         public var bitrateKbps: Int
         public var packetSize: Int
         public var supportedResolutions: [MVPConfiguration.Video.Resolution]
 
         public init(
-            width: Int,
-            height: Int,
+            resolution: MVPConfiguration.Video.Resolution,
             fps: Int,
             bitrateKbps: Int,
             packetSize: Int,
             supportedResolutions: [MVPConfiguration.Video.Resolution]
         ) {
-            self.width = width
-            self.height = height
+            self.resolution = resolution
             self.fps = fps
             self.bitrateKbps = bitrateKbps
             self.packetSize = packetSize
@@ -60,6 +23,7 @@ public struct AppSettings: Codable, Sendable {
         }
 
         private enum CodingKeys: String, CodingKey {
+            case resolution
             case width
             case height
             case fps
@@ -70,8 +34,14 @@ public struct AppSettings: Codable, Sendable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            width = try container.decodeIfPresent(Int.self, forKey: .width) ?? MVPConfiguration.fallback.video.resolution.width
-            height = try container.decodeIfPresent(Int.self, forKey: .height) ?? MVPConfiguration.fallback.video.resolution.height
+            if let decodedResolution = try container.decodeIfPresent(MVPConfiguration.Video.Resolution.self, forKey: .resolution) {
+                resolution = decodedResolution
+            } else {
+                resolution = MVPConfiguration.Video.Resolution(
+                    width: try container.decodeIfPresent(Int.self, forKey: .width) ?? MVPConfiguration.fallback.video.resolution.width,
+                    height: try container.decodeIfPresent(Int.self, forKey: .height) ?? MVPConfiguration.fallback.video.resolution.height
+                )
+            }
             fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? MVPConfiguration.fallback.video.fps
             bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? MVPConfiguration.fallback.video.bitrateKbps
             packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? MVPConfiguration.fallback.video.packetSize
@@ -79,6 +49,15 @@ public struct AppSettings: Codable, Sendable {
             let decodedSupportedResolutions = try container.decodeIfPresent([MVPConfiguration.Video.Resolution].self, forKey: .supportedResolutions)
                 ?? Self.defaultSupportedResolutions
             supportedResolutions = Self.normalizedSupportedResolutions(decodedSupportedResolutions)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(resolution, forKey: .resolution)
+            try container.encode(fps, forKey: .fps)
+            try container.encode(bitrateKbps, forKey: .bitrateKbps)
+            try container.encode(packetSize, forKey: .packetSize)
+            try container.encode(supportedResolutions, forKey: .supportedResolutions)
         }
 
         public static let defaultSupportedResolutions: [MVPConfiguration.Video.Resolution] = [
@@ -129,25 +108,26 @@ public struct AppSettings: Codable, Sendable {
 
     public var host: HostAuthority?
     public var video: Video
-    public var perGameLaunchPreferences: [String: AppGameLaunchPreferences]
+    public var streamMode: StreamMode
     public var pendingPairingResetOnNextLaunch: Bool
 
     private enum CodingKeys: String, CodingKey {
         case host
         case video
-        case perGameLaunchPreferences
+        case streamMode
+        case launchesFullscreen
         case pendingPairingResetOnNextLaunch
     }
 
     public init(
         host: HostAuthority?,
         video: Video,
-        perGameLaunchPreferences: [String: AppGameLaunchPreferences],
+        streamMode: StreamMode,
         pendingPairingResetOnNextLaunch: Bool
     ) {
         self.host = host
         self.video = video
-        self.perGameLaunchPreferences = perGameLaunchPreferences
+        self.streamMode = streamMode
         self.pendingPairingResetOnNextLaunch = pendingPairingResetOnNextLaunch
     }
 
@@ -155,23 +135,36 @@ public struct AppSettings: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         host = try container.decodeIfPresent(HostAuthority.self, forKey: .host)
         video = try container.decodeIfPresent(Video.self, forKey: .video) ?? AppSettings.initial.video
-        perGameLaunchPreferences = try container.decodeIfPresent([String: AppGameLaunchPreferences].self, forKey: .perGameLaunchPreferences) ?? [:]
+        if let decodedMode = try container.decodeIfPresent(StreamMode.self, forKey: .streamMode) {
+            streamMode = decodedMode
+        } else {
+            streamMode = (try container.decodeIfPresent(Bool.self, forKey: .launchesFullscreen) ?? false) ? .fullscreen : .windowed
+        }
         pendingPairingResetOnNextLaunch = try container.decodeIfPresent(Bool.self, forKey: .pendingPairingResetOnNextLaunch) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(host, forKey: .host)
+        try container.encode(video, forKey: .video)
+        try container.encode(streamMode, forKey: .streamMode)
+        try container.encode(pendingPairingResetOnNextLaunch, forKey: .pendingPairingResetOnNextLaunch)
     }
 }
 
 public extension AppSettings {
+    static let initialWindowedVideo = Video(
+        resolution: MVPConfiguration.fallback.video.resolution,
+        fps: MVPConfiguration.fallback.video.fps,
+        bitrateKbps: MVPConfiguration.fallback.video.bitrateKbps,
+        packetSize: MVPConfiguration.fallback.video.packetSize,
+        supportedResolutions: AppSettings.Video.defaultSupportedResolutions
+    )
+
     static let initial = AppSettings(
         host: nil,
-        video: .init(
-            width: MVPConfiguration.fallback.video.resolution.width,
-            height: MVPConfiguration.fallback.video.resolution.height,
-            fps: MVPConfiguration.fallback.video.fps,
-            bitrateKbps: MVPConfiguration.fallback.video.bitrateKbps,
-            packetSize: MVPConfiguration.fallback.video.packetSize,
-            supportedResolutions: AppSettings.Video.defaultSupportedResolutions
-        ),
-        perGameLaunchPreferences: [:],
+        video: initialWindowedVideo,
+        streamMode: .windowed,
         pendingPairingResetOnNextLaunch: false
     )
 
@@ -186,7 +179,7 @@ public extension AppSettings {
             throw AppSettingsError.missingHost
         }
 
-        let requestedResolution = resolution ?? MVPConfiguration.Video.Resolution(width: video.width, height: video.height)
+        let requestedResolution = resolution ?? video.resolution
 
         return MVPConfiguration(
             host: .init(address: host.address, port: host.port, appID: appID),
@@ -199,23 +192,11 @@ public extension AppSettings {
             )
         )
     }
+}
 
-    func launchPreferences(for appID: Int) -> AppGameLaunchPreferences {
-        if let storedPreferences = perGameLaunchPreferences[String(appID)] {
-            return storedPreferences
-        }
-
-        return AppGameLaunchPreferences(
-            launchesFullscreen: false,
-            usesRawMouse: false,
-            windowedResolution: MVPConfiguration.Video.Resolution(width: video.width, height: video.height),
-            windowedFPS: video.fps
-        )
-    }
-
-    mutating func setLaunchPreferences(_ preferences: AppGameLaunchPreferences, for appID: Int) {
-        perGameLaunchPreferences[String(appID)] = preferences
-    }
+public enum StreamMode: String, Codable, Sendable, Hashable {
+    case windowed
+    case fullscreen
 }
 
 public enum AppSettingsError: Error, LocalizedError {
