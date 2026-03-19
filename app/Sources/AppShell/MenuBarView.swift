@@ -22,6 +22,8 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             sessionSection
+            Divider()
+            utilitySection
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -132,6 +134,22 @@ struct MenuBarView: View {
                 Button(primaryActionTitle, action: handlePrimaryAction)
                     .buttonStyle(.bordered)
             }
+        }
+    }
+
+    private var utilitySection: some View {
+        HStack(spacing: 10) {
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
+            Button(action: coordinator.terminateApplication) {
+                Label("Quit", systemImage: "power")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
