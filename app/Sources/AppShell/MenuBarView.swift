@@ -84,21 +84,15 @@ struct MenuBarView: View {
 
     private var runningSessionContent: some View {
         HStack(alignment: .center, spacing: 12) {
-            posterPlaceholder
-
             VStack(alignment: .leading, spacing: 4) {
-                Text(coordinator.runningApplicationTitle)
+                Text(sessionStatusText)
                     .font(.headline)
+                    .foregroundStyle(sessionStatusColor)
                     .lineLimit(1)
 
                 Text(streamInfoText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Text(sessionStatusText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(sessionStatusColor)
                     .lineLimit(1)
             }
 
@@ -135,41 +129,26 @@ struct MenuBarView: View {
 
     private var inactiveSessionContent: some View {
         VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(hostStatusText)
+                    .font(.headline)
+                    .foregroundStyle(hostStatusColor)
+
+                Text(hostDetailText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             switch coordinator.hostAvailabilityState {
-            case .unconfigured:
-                statusRow(
-                    icon: "display.trianglebadge.exclamationmark",
-                    title: "No Sunshine host configured",
-                    detail: "Open Settings to pair a host before starting a session."
-                )
-
-            case .checking:
-                statusRow(
-                    icon: "bolt.horizontal.circle",
-                    title: coordinator.launchInProgress ? "Connecting to Sunshine host" : "Checking Sunshine host",
-                    detail: coordinator.launchInProgress
-                        ? "Starting the remote desktop session."
-                        : "Refreshing host availability and running state."
-                )
-
-            case .reachable:
-                statusRow(
-                    icon: "checkmark.circle.fill",
-                    title: "Sunshine host ready",
-                    detail: "No active session"
-                )
-
             case .unreachable:
-                statusRow(
-                    icon: "wifi.exclamationmark",
-                    title: "Sunshine host not reachable",
-                    detail: unreachableDetailText
-                )
-
                 if coordinator.hasWakeOnLANConfiguration {
                     Button("Send Wake Packet", action: coordinator.sendWakeOnLANMagicPacket)
                         .buttonStyle(.borderedProminent)
                 }
+
+            case .unconfigured, .checking, .reachable:
+                EmptyView()
             }
 
             if canRunPrimaryAction {
@@ -237,21 +216,6 @@ struct MenuBarView: View {
         }
     }
 
-    private var posterPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(.quaternary)
-            .overlay {
-                Image(systemName: "gamecontroller.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: 48, height: 64)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-    }
-
     private func sectionContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(12)
@@ -293,25 +257,6 @@ struct MenuBarView: View {
         .help(title)
     }
 
-    private func statusRow(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.headline)
-
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
     private var unreachableDetailText: String {
         if case let .unreachable(message) = coordinator.hostAvailabilityState,
            !message.isEmpty {
@@ -340,6 +285,43 @@ struct MenuBarView: View {
             return Color(nsColor: .systemOrange)
         case .streaming:
             return Color(nsColor: .systemGreen)
+        }
+    }
+
+    private var hostStatusText: String {
+        switch coordinator.hostAvailabilityState {
+        case .unconfigured, .unreachable:
+            return "Offline"
+        case .checking:
+            return coordinator.launchInProgress ? "Streaming" : "Ready"
+        case .reachable:
+            return "Ready"
+        }
+    }
+
+    private var hostStatusColor: Color {
+        switch coordinator.hostAvailabilityState {
+        case .unconfigured, .unreachable:
+            return .secondary
+        case .checking:
+            return coordinator.launchInProgress ? Color(nsColor: .systemGreen) : .secondary
+        case .reachable:
+            return Color(nsColor: .systemGreen)
+        }
+    }
+
+    private var hostDetailText: String {
+        switch coordinator.hostAvailabilityState {
+        case .unconfigured:
+            return "Open Settings to pair a host before starting a session."
+        case .checking:
+            return coordinator.launchInProgress
+                ? "Starting the remote desktop session."
+                : "Refreshing host availability and running state."
+        case .reachable:
+            return "No active session"
+        case .unreachable:
+            return unreachableDetailText
         }
     }
 
