@@ -1,14 +1,14 @@
 import Foundation
 
-enum PackageResourceBundle {
+public enum PackageResourceBundle {
     private static let executableTargetBundleName = "moonlight-swift_Moonlight.bundle"
     private static let coreTargetBundleName = "moonlight-swift_MoonlightCore.bundle"
 
-    static var executableTarget: Bundle? {
+    public static var executableTarget: Bundle? {
         bundle(named: executableTargetBundleName)
     }
 
-    static var coreTarget: Bundle? {
+    public static var coreTarget: Bundle? {
         bundle(named: coreTargetBundleName)
     }
 

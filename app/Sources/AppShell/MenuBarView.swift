@@ -1,9 +1,10 @@
 import AppKit
+import MoonlightCore
 import SwiftUI
 
 private enum MenuBarIconAsset {
     static let image: NSImage = {
-        guard let url = Bundle.module.url(forResource: "MenuBarIcon", withExtension: "svg"),
+        guard let url = PackageResourceBundle.executableTarget?.url(forResource: "MenuBarIcon", withExtension: "svg"),
               let image = NSImage(contentsOf: url)
         else {
             return NSImage(systemSymbolName: "display", accessibilityDescription: "GameStream") ?? NSImage()
