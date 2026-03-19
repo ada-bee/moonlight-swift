@@ -1,3 +1,4 @@
+import AppKit
 import MoonlightCore
 import SwiftUI
 
@@ -52,119 +53,315 @@ struct MenuBarView: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            headerSection
-
-            Divider()
-
-            Button(primaryActionTitle, action: handlePrimaryAction)
-                .disabled(!canRunPrimaryAction)
-
-            if coordinator.canResumeRunningApplication {
-                Button("Resume", action: coordinator.resumeRunningApplication)
-            }
-
-            if coordinator.canPauseRunningApplication {
-                Button("Pause", action: coordinator.pauseRunningApplication)
-            }
-
-            if coordinator.canStopRunningApplication {
-                Button("Stop", action: coordinator.stopRunningApplication)
-            }
-
-            Divider()
-
-            Menu("Display") {
-                Toggle("Fullscreen", isOn: fullscreenBinding)
-                    .disabled(!isStreamMenuAvailable || coordinator.activeStreamScreenMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-
-                Divider()
-
-                Menu("Resolution") {
-                    ForEach(resolutionOptions, id: \.self) { option in
-                        Toggle(option.label, isOn: resolutionBinding(for: option.resolution))
-                    }
-                }
-                .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
-
-                Menu("Frame Rate") {
-                    ForEach(fpsOptions, id: \.self) { option in
-                        Toggle(option.label, isOn: fpsBinding(for: option.fps))
-                    }
-                }
-                .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
-            }
-            .disabled(!isStreamMenuAvailable)
-
-            Menu("Input") {
-                Toggle("Direct Mouse Input", isOn: rawMouseInputBinding)
-                    .disabled(!isStreamMenuAvailable || coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-            }
-            .disabled(!isStreamMenuAvailable)
-
-            Divider()
-
-            Button("Refresh Host", action: coordinator.refreshLibrary)
-                .disabled(coordinator.pairedHost == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-
-            Button("Settings...", action: showSettings)
-
-            Divider()
-
-            Button("Quit") {
-                NSApp.terminate(nil)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            sessionSection
+            compactControlsSection
+            utilitySection
         }
-        .padding(12)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(statusTitle)
-                .font(.headline)
+    private var sessionSection: some View {
+        sectionContainer {
+            VStack(alignment: .leading, spacing: 12) {
+                switch coordinator.streamActivityState {
+                case .streaming, .paused:
+                    runningSessionContent
+                case .inactive:
+                    inactiveSessionContent
+                }
 
-            Text(statusDetail)
-                .font(.subheadline)
+                if let message = coordinator.libraryActionError {
+                    Text(message)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(nsColor: .systemRed))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var runningSessionContent: some View {
+        HStack(alignment: .center, spacing: 12) {
+            posterPlaceholder
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(coordinator.runningApplicationTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Text(streamInfoText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Text(sessionStatusText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(sessionStatusColor)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 8) {
+                if coordinator.canPauseRunningApplication {
+                    actionGlyphButton(
+                        systemImage: "pause.fill",
+                        title: "Pause",
+                        action: coordinator.pauseRunningApplication
+                    )
+                }
+
+                if coordinator.canResumeRunningApplication {
+                    actionGlyphButton(
+                        systemImage: "play.fill",
+                        title: "Resume",
+                        action: coordinator.resumeRunningApplication
+                    )
+                }
+
+                if coordinator.canStopRunningApplication {
+                    actionGlyphButton(
+                        systemImage: "stop.fill",
+                        title: "Stop",
+                        role: .destructive,
+                        action: coordinator.stopRunningApplication
+                    )
+                }
+            }
+        }
+    }
+
+    private var inactiveSessionContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch coordinator.hostAvailabilityState {
+            case .unconfigured:
+                statusRow(
+                    icon: "display.trianglebadge.exclamationmark",
+                    title: "No Sunshine host configured",
+                    detail: "Open Settings to pair a host before starting a session."
+                )
+
+            case .checking:
+                statusRow(
+                    icon: "bolt.horizontal.circle",
+                    title: coordinator.launchInProgress ? "Connecting to Sunshine host" : "Checking Sunshine host",
+                    detail: coordinator.launchInProgress
+                        ? "Starting the remote desktop session."
+                        : "Refreshing host availability and running state."
+                )
+
+            case .reachable:
+                statusRow(
+                    icon: "checkmark.circle.fill",
+                    title: "Sunshine host ready",
+                    detail: "No active session"
+                )
+
+            case .unreachable:
+                statusRow(
+                    icon: "wifi.exclamationmark",
+                    title: "Sunshine host not reachable",
+                    detail: unreachableDetailText
+                )
+
+                if coordinator.hasWakeOnLANConfiguration {
+                    Button("Send Wake Packet", action: coordinator.sendWakeOnLANMagicPacket)
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+
+            if canRunPrimaryAction {
+                Button(primaryActionTitle, action: handlePrimaryAction)
+                    .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var compactControlsSection: some View {
+        sectionContainer {
+            HStack(spacing: 10) {
+                Menu {
+                    Toggle("Fullscreen", isOn: fullscreenBinding)
+                        .disabled(!isStreamMenuAvailable || coordinator.activeStreamScreenMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+
+                    Divider()
+
+                    Menu("Resolution") {
+                        ForEach(resolutionOptions, id: \.self) { option in
+                            Toggle(option.label, isOn: resolutionBinding(for: option.resolution))
+                        }
+                    }
+                    .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
+
+                    Menu("Frame Rate") {
+                        ForEach(fpsOptions, id: \.self) { option in
+                            Toggle(option.label, isOn: fpsBinding(for: option.fps))
+                        }
+                    }
+                    .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
+                } label: {
+                    sectionMenuLabel(title: "Display", systemImage: "display")
+                }
+                .menuStyle(.borderlessButton)
+                .disabled(!isStreamMenuAvailable)
+
+                Menu {
+                    Toggle("Direct Mouse Input", isOn: rawMouseInputBinding)
+                        .disabled(!isStreamMenuAvailable || coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+                } label: {
+                    sectionMenuLabel(title: "Input", systemImage: "cursorarrow.motionlines")
+                }
+                .menuStyle(.borderlessButton)
+                .disabled(!isStreamMenuAvailable)
+
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var utilitySection: some View {
+        sectionContainer {
+            VStack(alignment: .leading, spacing: 6) {
+                Button("Refresh Host", action: coordinator.refreshLibrary)
+                    .disabled(coordinator.pairedHost == nil || coordinator.launchInProgress || coordinator.stopInProgress)
+
+                Button("Settings...", action: showSettings)
+
+                Button("Quit") {
+                    NSApp.terminate(nil)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var posterPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(.quaternary)
+            .overlay {
+                Image(systemName: "gamecontroller.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 48, height: 64)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+    }
+
+    private func sectionContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+    }
+
+    private func sectionMenuLabel(title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .labelStyle(.titleAndIcon)
+            .font(.subheadline.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.thinMaterial, in: Capsule())
+    }
+
+    private func actionGlyphButton(
+        systemImage: String,
+        title: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.borderless)
+        .background(.thinMaterial, in: Circle())
+        .overlay(
+            Circle()
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .help(title)
+    }
+
+    private func statusRow(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
 
-            if let message = coordinator.libraryActionError {
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(Color(nsColor: .systemRed))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
             }
-        }
-        .padding(.bottom, 8)
-    }
-
-    private var statusTitle: String {
-        switch coordinator.streamActivityState {
-        case .inactive:
-            return coordinator.launchInProgress ? "Connecting..." : "Desktop ready"
-        case .paused:
-            return "Desktop paused"
-        case .streaming:
-            return "Desktop streaming"
         }
     }
 
-    private var statusDetail: String {
-        if coordinator.pairedHost == nil {
-            return "Pair a Sunshine host in Settings to begin."
+    private var unreachableDetailText: String {
+        if case let .unreachable(message) = coordinator.hostAvailabilityState,
+           !message.isEmpty {
+            return message
         }
 
+        return "The paired host did not answer the latest availability check."
+    }
+
+    private var sessionStatusText: String {
         switch coordinator.streamActivityState {
         case .inactive:
-            if coordinator.launchInProgress {
-                return "Starting the remote desktop stream."
-            }
-            return "Launch the Windows desktop from the menu bar."
+            return "Idle"
         case .paused:
-            return "The host desktop is still running without an active stream."
+            return "Paused"
         case .streaming:
-            return "The active stream window is available on your desktop."
+            return "Streaming"
         }
+    }
+
+    private var sessionStatusColor: Color {
+        switch coordinator.streamActivityState {
+        case .inactive:
+            return .secondary
+        case .paused:
+            return Color(nsColor: .systemOrange)
+        case .streaming:
+            return Color(nsColor: .systemGreen)
+        }
+    }
+
+    private var streamInfoText: String {
+        let resolution = coordinator.currentRunningApplicationResolution
+            ?? coordinator.activeStreamResolution
+        let fps = coordinator.currentRunningApplicationFPS
+            ?? coordinator.activeStreamFPS
+
+        if let resolution, let fps {
+            return "\(resolution.width) x \(resolution.height) @ \(fps)"
+        }
+
+        if let resolution {
+            return "\(resolution.width) x \(resolution.height)"
+        }
+
+        if let fps {
+            return "\(fps) Hz"
+        }
+
+        return "Stream details unavailable"
     }
 
     private var primaryActionTitle: String {

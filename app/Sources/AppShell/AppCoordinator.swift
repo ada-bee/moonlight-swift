@@ -25,6 +25,13 @@ final class AppCoordinator: ObservableObject {
         case failed(String)
     }
 
+    enum HostAvailabilityState: Equatable {
+        case unconfigured
+        case checking
+        case reachable
+        case unreachable(String)
+    }
+
     private enum ActiveStreamResumeError: LocalizedError {
         case noActiveStream
         case applicationNoLongerRunning
@@ -290,6 +297,41 @@ final class AppCoordinator: ObservableObject {
         }
 
         return displayName(for: currentRunningApplicationID)
+    }
+
+    var currentRunningApplicationResolution: MVPConfiguration.Video.Resolution? {
+        guard currentRunningApplicationID != 0 else {
+            return nil
+        }
+
+        return settings.launchPreferences(for: currentRunningApplicationID).windowedResolution
+    }
+
+    var currentRunningApplicationFPS: Int? {
+        guard currentRunningApplicationID != 0 else {
+            return nil
+        }
+
+        return settings.launchPreferences(for: currentRunningApplicationID).windowedFPS
+    }
+
+    var hostAvailabilityState: HostAvailabilityState {
+        guard pairedHost != nil else {
+            return .unconfigured
+        }
+
+        switch libraryState {
+        case .idle, .loading:
+            return .checking
+        case .loaded:
+            return .reachable
+        case let .failed(message):
+            return .unreachable(message)
+        }
+    }
+
+    var hasWakeOnLANConfiguration: Bool {
+        pairedHost?.wakeOnLANConfiguration != nil
     }
 
     var canLaunchDesktop: Bool {
@@ -638,6 +680,59 @@ final class AppCoordinator: ObservableObject {
         Task { [weak self] in
             await self?.teardownActiveSession(closeErrorWindow: true)
         }
+    }
+
+    func sendWakeOnLANMagicPacket() {
+        guard let configuration = pairedHost?.wakeOnLANConfiguration else {
+            libraryActionError = "Wake-on-LAN is not configured for this host."
+            return
+        }
+
+        libraryActionError = nil
+
+        let wakeOnLANClient = wakeOnLANClient
+        Task { [weak self] in
+            do {
+                try await Self.sendWakeOnLANMagicPacketRetries(
+                    using: wakeOnLANClient,
+                    configuration: configuration
+                )
+
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await MainActor.run {
+                    self?.refreshLibraryAfterWakeOnLAN()
+                }
+            } catch {
+                await MainActor.run {
+                    self?.recordWakeOnLANError(error)
+                }
+            }
+        }
+    }
+
+    private func refreshLibraryAfterWakeOnLAN() {
+        refreshLibrary(force: true, showLoadingIndicator: false)
+    }
+
+    private func recordWakeOnLANError(_ error: Error) {
+        libraryActionError = error.localizedDescription
+    }
+
+    private static func sendWakeOnLANMagicPacketRetries(
+        using wakeOnLANClient: WakeOnLANClient,
+        configuration: WakeOnLANConfiguration
+    ) async throws {
+        try await Task.detached(priority: .utility) {
+            for attempt in 0..<3 {
+                try wakeOnLANClient.sendMagicPacket(configuration: configuration)
+
+                guard attempt < 2 else {
+                    continue
+                }
+
+                try await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }.value
     }
 
     private func launchApplication(id applicationID: Int) {
