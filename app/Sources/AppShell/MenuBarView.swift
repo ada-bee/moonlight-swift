@@ -1,5 +1,4 @@
 import AppKit
-import MoonlightCore
 import SwiftUI
 
 private enum MenuBarIconAsset {
@@ -17,46 +16,11 @@ private enum MenuBarIconAsset {
 }
 
 struct MenuBarView: View {
-    @Environment(\.openSettings) private var openSettings
-
     @ObservedObject var coordinator: AppCoordinator
-
-    private struct ResolutionOption: Hashable, Identifiable {
-        let resolution: MVPConfiguration.Video.Resolution
-
-        var id: String {
-            "\(resolution.width)x\(resolution.height)"
-        }
-
-        var label: String {
-            "\(resolution.width) x \(resolution.height)"
-        }
-    }
-
-    private struct FPSOption: Hashable, Identifiable {
-        let fps: Int
-
-        var id: Int {
-            fps
-        }
-
-        var label: String {
-            "\(fps) Hz"
-        }
-    }
-
-    private static let standardFPSOptions: [FPSOption] = [
-        .init(fps: 30),
-        .init(fps: 60),
-        .init(fps: 90),
-        .init(fps: 120)
-    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             sessionSection
-            compactControlsSection
-            utilitySection
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -66,21 +30,19 @@ struct MenuBarView: View {
     }
 
     private var sessionSection: some View {
-        sectionContainer {
-            VStack(alignment: .leading, spacing: 12) {
-                switch coordinator.streamActivityState {
-                case .streaming, .paused:
-                    runningSessionContent
-                case .inactive:
-                    inactiveSessionContent
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            switch coordinator.streamActivityState {
+            case .streaming, .paused:
+                runningSessionContent
+            case .inactive:
+                inactiveSessionContent
+            }
 
-                if let message = coordinator.libraryActionError {
-                    Text(message)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(nsColor: .systemRed))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if let message = coordinator.libraryActionError {
+                Text(message)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Color(nsColor: .systemRed))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -159,84 +121,6 @@ struct MenuBarView: View {
                     .buttonStyle(.bordered)
             }
         }
-    }
-
-    private var compactControlsSection: some View {
-        sectionContainer {
-            HStack(spacing: 10) {
-                Menu {
-                    Toggle("Fullscreen", isOn: fullscreenBinding)
-                        .disabled(!isStreamMenuAvailable || coordinator.activeStreamScreenMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-
-                    Divider()
-
-                    Menu("Resolution") {
-                        ForEach(resolutionOptions, id: \.self) { option in
-                            Toggle(option.label, isOn: resolutionBinding(for: option.resolution))
-                        }
-                    }
-                    .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
-
-                    Menu("Frame Rate") {
-                        ForEach(fpsOptions, id: \.self) { option in
-                            Toggle(option.label, isOn: fpsBinding(for: option.fps))
-                        }
-                    }
-                    .disabled(!isStreamMenuAvailable || !isResolutionMenuEnabled)
-                } label: {
-                    sectionMenuLabel(title: "Display", systemImage: "display")
-                }
-                .menuStyle(.borderlessButton)
-                .disabled(!isStreamMenuAvailable)
-
-                Menu {
-                    Toggle("Direct Mouse Input", isOn: rawMouseInputBinding)
-                        .disabled(!isStreamMenuAvailable || coordinator.activeStreamMouseMode == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-                } label: {
-                    sectionMenuLabel(title: "Input", systemImage: "cursorarrow.motionlines")
-                }
-                .menuStyle(.borderlessButton)
-                .disabled(!isStreamMenuAvailable)
-
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    private var utilitySection: some View {
-        sectionContainer {
-            VStack(alignment: .leading, spacing: 6) {
-                Button("Refresh Host", action: coordinator.refreshLibrary)
-                    .disabled(coordinator.pairedHost == nil || coordinator.launchInProgress || coordinator.stopInProgress)
-
-                Button("Settings...", action: showSettings)
-
-                Button("Quit") {
-                    coordinator.terminateApplication()
-                }
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func sectionContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-    }
-
-    private func sectionMenuLabel(title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .labelStyle(.titleAndIcon)
-            .font(.subheadline.weight(.medium))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.thinMaterial, in: Capsule())
     }
 
     private func actionGlyphButton(
@@ -364,94 +248,6 @@ struct MenuBarView: View {
         }
     }
 
-    private var rawMouseInputBinding: Binding<Bool> {
-        Binding(
-            get: { coordinator.activeStreamMouseMode == .raw },
-            set: { isSelected in
-                coordinator.setActiveStreamMouseMode(isSelected ? .raw : .absolute)
-            }
-        )
-    }
-
-    private var fullscreenBinding: Binding<Bool> {
-        Binding(
-            get: { coordinator.activeStreamScreenMode == .fullscreen },
-            set: { isSelected in
-                coordinator.setActiveStreamScreenMode(isSelected ? .fullscreen : .windowed)
-            }
-        )
-    }
-
-    private func resolutionBinding(for resolution: MVPConfiguration.Video.Resolution) -> Binding<Bool> {
-        Binding(
-            get: { coordinator.activeStreamResolution == resolution },
-            set: { isSelected in
-                guard isSelected else {
-                    return
-                }
-
-                coordinator.setActiveStreamResolution(resolution)
-            }
-        )
-    }
-
-    private func fpsBinding(for fps: Int) -> Binding<Bool> {
-        Binding(
-            get: { coordinator.activeStreamFPS == fps },
-            set: { isSelected in
-                guard isSelected else {
-                    return
-                }
-
-                coordinator.setActiveStreamFPS(fps)
-            }
-        )
-    }
-
-    private var resolutionOptions: [ResolutionOption] {
-        var options = coordinator.settings.video.supportedResolutions.map { ResolutionOption(resolution: $0) }
-        if let activeResolution = coordinator.activeStreamResolution,
-           options.contains(where: { $0.resolution == activeResolution }) == false {
-            options.append(ResolutionOption(resolution: activeResolution))
-            options.sort { lhs, rhs in
-                let lhsPixels = lhs.resolution.width * lhs.resolution.height
-                let rhsPixels = rhs.resolution.width * rhs.resolution.height
-
-                if lhsPixels != rhsPixels {
-                    return lhsPixels > rhsPixels
-                }
-
-                if lhs.resolution.width != rhs.resolution.width {
-                    return lhs.resolution.width > rhs.resolution.width
-                }
-
-                return lhs.resolution.height > rhs.resolution.height
-            }
-        }
-        return options
-    }
-
-    private var fpsOptions: [FPSOption] {
-        var options = Self.standardFPSOptions
-        if let activeFPS = coordinator.activeStreamFPS,
-           options.contains(where: { $0.fps == activeFPS }) == false {
-            options.append(.init(fps: activeFPS))
-            options.sort { $0.fps < $1.fps }
-        }
-        return options
-    }
-
-    private var isResolutionMenuEnabled: Bool {
-        coordinator.activeStreamSupportsResolutionSelection
-            && coordinator.activeStreamScreenMode == .windowed
-            && !coordinator.launchInProgress
-            && !coordinator.stopInProgress
-    }
-
-    private var isStreamMenuAvailable: Bool {
-        coordinator.activeStreamApplicationID != nil
-    }
-
     private func handlePrimaryAction() {
         switch coordinator.streamActivityState {
         case .inactive:
@@ -465,11 +261,6 @@ struct MenuBarView: View {
         case .streaming:
             coordinator.presentActiveStreamWindow()
         }
-    }
-
-    private func showSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        openSettings()
     }
 }
 
