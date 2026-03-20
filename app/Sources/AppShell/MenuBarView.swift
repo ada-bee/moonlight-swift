@@ -30,128 +30,51 @@ struct MenuBarView: View {
                     .padding(.horizontal, 2)
             }
 
-            sessionSection
+            menuPanel {
+                headerSection
+                actionSection
+            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             coordinator.menuBarDidOpen()
         }
+        .animation(.snappy(duration: 0.18), value: coordinator.menuBarPopupPresentation.state)
+        .animation(.snappy(duration: 0.18), value: coordinator.launchInProgress)
+        .animation(.snappy(duration: 0.18), value: coordinator.stopInProgress)
+        .animation(.snappy(duration: 0.18), value: coordinator.wakeInProgress)
     }
 
-    private var sessionSection: some View {
-        menuPanel {
-            switch coordinator.streamActivityState {
-            case .streaming, .paused:
-                runningSessionContent
-            case .inactive:
-                inactiveSessionContent
+    private var presentation: AppCoordinator.MenuBarPopupPresentation {
+        coordinator.menuBarPopupPresentation
+    }
+
+    private var headerSection: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(presentation.status)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+
+                Text(presentation.description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            Spacer(minLength: 0)
+
+            streamModeToggle
         }
     }
 
-    private var runningSessionContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(sessionStatusText)
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(sessionStatusColor)
-                        .lineLimit(1)
-
-                    Text(streamInfoText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                streamModeToggle
-            }
-
-            if hasTransportControls {
-                HStack(spacing: 10) {
-                    if coordinator.canPauseRunningApplication {
-                        actionButton(
-                            systemImage: "pause.fill",
-                            title: "Pause",
-                            prominence: .caution,
-                            action: coordinator.pauseRunningApplication
-                        )
-                    }
-
-                    if coordinator.canResumeRunningApplication {
-                        actionButton(
-                            systemImage: "play.fill",
-                            title: "Resume",
-                            prominence: .positive,
-                            action: coordinator.resumeRunningApplication
-                        )
-                    }
-
-                    if coordinator.canStopRunningApplication {
-                        actionButton(
-                            systemImage: "stop.fill",
-                            title: "Stop",
-                            role: .destructive,
-                            prominence: .destructive,
-                            action: coordinator.stopRunningApplication
-                        )
-                    }
-
-                    utilitySection
-                }
-            }
-
-        }
-    }
-
-    private var inactiveSessionContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(hostStatusText)
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(hostStatusColor)
-
-                    Text(hostDetailText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                streamModeToggle
-            }
-
-            HStack(spacing: 10) {
-                switch coordinator.hostAvailabilityState {
-                case .unreachable:
-                    if coordinator.hasWakeOnLANConfiguration {
-                        actionButton(
-                            systemImage: "wake.circle",
-                            title: "Send Wake Packet",
-                            action: coordinator.sendWakeOnLANMagicPacket
-                        )
-                    }
-
-                case .unconfigured, .checking, .reachable:
-                    EmptyView()
-                }
-
-                if canRunPrimaryAction {
-                    actionButton(
-                        systemImage: primaryActionSymbol,
-                        title: primaryActionButtonTitle,
-                        prominence: .caution,
-                        action: handlePrimaryAction
-                    )
-                }
-
-                utilitySection
-            }
+    private var actionSection: some View {
+        HStack(spacing: 10) {
+            popupActionButton(presentation.primaryButton, prominence: primaryButtonProminence)
+            popupActionButton(presentation.secondaryButton, prominence: .destructive, role: .destructive)
+            utilitySection
         }
     }
 
@@ -200,19 +123,34 @@ struct MenuBarView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func actionButton(
-        systemImage: String,
-        title: String,
-        role: ButtonRole? = nil,
-        prominence: ActionButtonProminence = .standard,
-        action: @escaping () -> Void
+    private func popupActionButton(
+        _ button: AppCoordinator.MenuBarPopupButton,
+        prominence: ActionButtonProminence,
+        role: ButtonRole? = nil
     ) -> some View {
-        Button(role: role, action: action) {
-            Label(title, systemImage: systemImage)
-                .labelStyle(.titleAndIcon)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 24)
+        Button(role: role) {
+            guard button.isEnabled else {
+                return
+            }
+
+            coordinator.performMenuBarPopupAction(button.action)
+            if button.action.dismissesPopup {
+                dismiss()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if button.showsProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if let systemImage = button.systemImage {
+                    Image(systemName: systemImage)
+                }
+
+                Text(button.title)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 24)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.capsule)
@@ -220,37 +158,16 @@ struct MenuBarView: View {
         .font(.body.weight(.semibold))
         .layoutPriority(1)
         .tint(buttonTint(for: prominence))
-        .help(title)
+        .disabled(!button.isEnabled)
+        .help(button.title)
     }
 
-    private var hasTransportControls: Bool {
-        coordinator.canPauseRunningApplication || coordinator.canResumeRunningApplication || coordinator.canStopRunningApplication
-    }
-
-    private var unreachableDetailText: String {
-        if case let .unreachable(message) = coordinator.hostAvailabilityState,
-           !message.isEmpty {
-            return message
-        }
-
-        return "The paired host did not answer the latest availability check."
-    }
-
-    private var sessionStatusText: String {
-        switch coordinator.streamActivityState {
-        case .inactive:
-            return "Idle"
-        case .paused:
-            return "Paused"
-        case .streaming:
-            return "Streaming"
-        }
-    }
-
-    private var sessionStatusColor: Color {
-        switch coordinator.streamActivityState {
-        case .inactive:
+    private var statusColor: Color {
+        switch presentation.state {
+        case .offline:
             return .secondary
+        case .ready:
+            return Color(nsColor: .systemGreen)
         case .paused:
             return Color(nsColor: .systemOrange)
         case .streaming:
@@ -258,60 +175,15 @@ struct MenuBarView: View {
         }
     }
 
-    private var hostStatusText: String {
-        switch coordinator.hostAvailabilityState {
-        case .unconfigured, .unreachable:
-            return "Offline"
-        case .checking:
-            return coordinator.launchInProgress ? "Streaming" : "Ready"
-        case .reachable:
-            return "Ready"
+    private var primaryButtonProminence: ActionButtonProminence {
+        switch presentation.state {
+        case .offline, .paused:
+            return .caution
+        case .ready:
+            return .positive
+        case .streaming:
+            return .caution
         }
-    }
-
-    private var hostStatusColor: Color {
-        switch coordinator.hostAvailabilityState {
-        case .unconfigured, .unreachable:
-            return .secondary
-        case .checking:
-            return coordinator.launchInProgress ? Color(nsColor: .systemGreen) : .secondary
-        case .reachable:
-            return Color(nsColor: .systemGreen)
-        }
-    }
-
-    private var hostDetailText: String {
-        switch coordinator.hostAvailabilityState {
-        case .unconfigured:
-            return "Open Settings to pair a host before starting a session."
-        case .checking:
-            return coordinator.launchInProgress
-                ? "Starting the remote desktop session."
-                : "Refreshing host availability and running state."
-        case .reachable:
-            return "No active session"
-        case .unreachable:
-            return unreachableDetailText
-        }
-    }
-
-    private var streamInfoText: String {
-        let resolution = coordinator.currentStreamResolution
-        let fps = coordinator.currentStreamFPS
-
-        if let resolution, let fps {
-            return "\(resolution.width) x \(resolution.height) @ \(fps)"
-        }
-
-        if let resolution {
-            return "\(resolution.width) x \(resolution.height)"
-        }
-
-        if let fps {
-            return "\(fps) Hz"
-        }
-
-        return "Stream details unavailable"
     }
 
     private var fullscreenBinding: Binding<Bool> {
@@ -321,59 +193,6 @@ struct MenuBarView: View {
                 coordinator.setStreamMode(isSelected ? .fullscreen : .windowed)
             }
         )
-    }
-
-    private var primaryActionTitle: String {
-        coordinator.primaryActionTitle
-    }
-
-    private var primaryActionButtonTitle: String {
-        switch primaryActionTitle {
-        case "Launch Desktop":
-            return "Launch"
-        default:
-            return primaryActionTitle
-        }
-    }
-
-    private var primaryActionSymbol: String {
-        switch coordinator.streamActivityState {
-        case .inactive:
-            return "desktopcomputer"
-        case .paused:
-            return coordinator.canResumeRunningApplication ? "play.fill" : "desktopcomputer"
-        case .streaming:
-            return "macwindow.on.rectangle"
-        }
-    }
-
-    private var canRunPrimaryAction: Bool {
-        switch coordinator.streamActivityState {
-        case .inactive:
-            return coordinator.canLaunchDesktop
-        case .paused:
-            return coordinator.canResumeRunningApplication || coordinator.canLaunchDesktop
-        case .streaming:
-            return coordinator.activeStreamApplicationID != nil
-        }
-    }
-
-    private func handlePrimaryAction() {
-        switch coordinator.streamActivityState {
-        case .inactive:
-            coordinator.launchDesktop()
-            dismiss()
-        case .paused:
-            if coordinator.canResumeRunningApplication {
-                coordinator.resumeRunningApplication()
-                dismiss()
-            } else {
-                coordinator.launchDesktop()
-                dismiss()
-            }
-        case .streaming:
-            coordinator.presentActiveStreamWindow()
-        }
     }
 
     private func buttonTint(for prominence: ActionButtonProminence) -> Color? {

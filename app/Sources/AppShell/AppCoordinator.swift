@@ -12,6 +12,47 @@ final class AppCoordinator: ObservableObject {
         case streaming
     }
 
+    enum MenuBarPopupState: Equatable {
+        case offline
+        case ready
+        case paused
+        case streaming
+    }
+
+    enum MenuBarPopupAction {
+        case none
+        case wakeUp
+        case start
+        case resume
+        case pause
+        case stop
+
+        var dismissesPopup: Bool {
+            switch self {
+            case .start, .resume:
+                return true
+            case .none, .wakeUp, .pause, .stop:
+                return false
+            }
+        }
+    }
+
+    struct MenuBarPopupButton {
+        let title: String
+        let systemImage: String?
+        let action: MenuBarPopupAction
+        let isEnabled: Bool
+        let showsProgress: Bool
+    }
+
+    struct MenuBarPopupPresentation {
+        let state: MenuBarPopupState
+        let status: String
+        let description: String
+        let primaryButton: MenuBarPopupButton
+        let secondaryButton: MenuBarPopupButton
+    }
+
     enum PairingState: Equatable {
         case idle
         case inProgress(status: String, pin: String?)
@@ -28,6 +69,12 @@ final class AppCoordinator: ObservableObject {
     enum HostAvailabilityState: Equatable {
         case unconfigured
         case checking
+        case reachable
+        case unreachable(String)
+    }
+
+    private enum HostReachabilityState: Equatable {
+        case unknown
         case reachable
         case unreachable(String)
     }
@@ -55,9 +102,11 @@ final class AppCoordinator: ObservableObject {
     @Published private(set) var activeErrorWindowController: ErrorWindowController?
     @Published private(set) var launchInProgress = false
     @Published private(set) var stopInProgress = false
+    @Published private(set) var wakeInProgress = false
     @Published private(set) var libraryActionError: String?
     @Published private(set) var hasCompletedStartupLoad = false
     @Published private(set) var currentRunningApplicationID = 0
+    @Published private var hostReachabilityState: HostReachabilityState = .unknown
 
     private let appSupportPaths: AppSupportPaths
     private let settingsStore: AppSettingsStore
@@ -72,6 +121,7 @@ final class AppCoordinator: ObservableObject {
     private var libraryRefreshTask: Task<Void, Never>?
     private var queuedLibraryRefreshForce = false
     private var queuedLibraryRefreshShowsLoading = false
+    private var wakeMonitoringTask: Task<Void, Never>?
     private var isDockVisible = false
 
     private static let desktopApplicationID = StreamConfiguration.fallback.host.appID
@@ -323,6 +373,73 @@ final class AppCoordinator: ObservableObject {
         activeSessionController?.configuration.host.appID
     }
 
+    var menuBarPopupPresentation: MenuBarPopupPresentation {
+        switch menuBarPopupState {
+        case .offline:
+            return .init(
+                state: .offline,
+                status: "Offline",
+                description: offlineDescriptionText,
+                primaryButton: offlinePrimaryButton,
+                secondaryButton: disabledStopButton
+            )
+        case .ready:
+            return .init(
+                state: .ready,
+                status: "Ready",
+                description: configuredStreamInfoText,
+                primaryButton: .init(
+                    title: "Start",
+                    systemImage: "play.fill",
+                    action: .start,
+                    isEnabled: canLaunchDesktop,
+                    showsProgress: false
+                ),
+                secondaryButton: disabledStopButton
+            )
+        case .paused:
+            return .init(
+                state: .paused,
+                status: "Paused",
+                description: configuredStreamInfoText,
+                primaryButton: .init(
+                    title: "Resume",
+                    systemImage: "play.fill",
+                    action: .resume,
+                    isEnabled: canResumeRunningApplication,
+                    showsProgress: false
+                ),
+                secondaryButton: .init(
+                    title: stopInProgress ? "Stopping..." : "Stop",
+                    systemImage: stopInProgress ? nil : "stop.fill",
+                    action: .stop,
+                    isEnabled: canStopRunningApplication,
+                    showsProgress: stopInProgress
+                )
+            )
+        case .streaming:
+            return .init(
+                state: .streaming,
+                status: "Streaming",
+                description: configuredStreamInfoText,
+                primaryButton: .init(
+                    title: "Pause",
+                    systemImage: "pause.fill",
+                    action: .pause,
+                    isEnabled: canPauseRunningApplication,
+                    showsProgress: false
+                ),
+                secondaryButton: .init(
+                    title: stopInProgress ? "Stopping..." : "Stop",
+                    systemImage: stopInProgress ? nil : "stop.fill",
+                    action: .stop,
+                    isEnabled: canStopRunningApplication,
+                    showsProgress: stopInProgress
+                )
+            )
+        }
+    }
+
     var streamActivityState: StreamActivityState {
         if activeStreamApplicationID != nil {
             return .streaming
@@ -399,17 +516,25 @@ final class AppCoordinator: ObservableObject {
         return launchVideoMode(for: streamMode).fps
     }
 
+    var configuredStreamResolution: StreamConfiguration.Video.Resolution {
+        launchVideoMode(for: streamMode).resolution
+    }
+
+    var configuredStreamFPS: Int {
+        launchVideoMode(for: streamMode).fps
+    }
+
     var hostAvailabilityState: HostAvailabilityState {
         guard pairedHost != nil else {
             return .unconfigured
         }
 
-        switch libraryState {
-        case .idle, .loading:
+        switch hostReachabilityState {
+        case .unknown:
             return .checking
-        case .loaded:
+        case .reachable:
             return .reachable
-        case let .failed(message):
+        case let .unreachable(message):
             return .unreachable(message)
         }
     }
@@ -419,7 +544,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     var canLaunchDesktop: Bool {
-        guard pairedHost != nil, !launchInProgress, !stopInProgress else {
+        guard pairedHost != nil, isHostReachable, !launchInProgress, !stopInProgress else {
             return false
         }
 
@@ -453,6 +578,23 @@ final class AppCoordinator: ObservableObject {
             return "Launch Desktop"
         case .streaming:
             return activeStreamApplicationID == Self.desktopApplicationID ? "Show Desktop" : "Show Stream"
+        }
+    }
+
+    func performMenuBarPopupAction(_ action: MenuBarPopupAction) {
+        switch action {
+        case .none:
+            return
+        case .wakeUp:
+            sendWakeOnLANMagicPacket()
+        case .start:
+            launchDesktop()
+        case .resume:
+            resumeRunningApplication()
+        case .pause:
+            pauseRunningApplication()
+        case .stop:
+            stopRunningApplication()
         }
     }
 
@@ -649,6 +791,8 @@ final class AppCoordinator: ObservableObject {
         libraryRefreshTask = nil
         hostStateRefreshTask?.cancel()
         hostStateRefreshTask = nil
+        wakeMonitoringTask?.cancel()
+        wakeMonitoringTask = nil
         queuedHostStateRefresh = false
         queuedLibraryRefreshForce = false
         queuedLibraryRefreshShowsLoading = false
@@ -666,8 +810,10 @@ final class AppCoordinator: ObservableObject {
         libraryState = .idle
         launchInProgress = false
         stopInProgress = false
+        wakeInProgress = false
         libraryActionError = nil
         currentRunningApplicationID = 0
+        hostReachabilityState = .unknown
     }
 
     func saveWakeOnLANConfiguration(macAddress: String, broadcastAddress: String) throws {
@@ -732,8 +878,10 @@ final class AppCoordinator: ObservableObject {
         pairingState = .idle
         libraryState = .idle
         stopInProgress = false
+        wakeInProgress = false
         libraryActionError = nil
         currentRunningApplicationID = 0
+        hostReachabilityState = .unknown
     }
 
     func stopActiveSession() {
@@ -757,21 +905,47 @@ final class AppCoordinator: ObservableObject {
         }
 
         libraryActionError = nil
+        wakeInProgress = true
+        wakeMonitoringTask?.cancel()
 
         let wakeOnLANClient = wakeOnLANClient
-        Task { [weak self] in
+        wakeMonitoringTask = Task { [weak self] in
             do {
                 try await Self.sendWakeOnLANMagicPacketRetries(
                     using: wakeOnLANClient,
                     configuration: configuration
                 )
 
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                for attempt in 0..<15 {
+                    try Task.checkCancellation()
+                    try await Task.sleep(nanoseconds: attempt == 0 ? 1_500_000_000 : 1_000_000_000)
+
+                    guard let self else {
+                        return
+                    }
+
+                    if await self.refreshHostState() {
+                        await MainActor.run {
+                            self.wakeInProgress = false
+                            self.refreshLibraryAfterWakeOnLAN()
+                        }
+                        return
+                    }
+                }
+
                 await MainActor.run {
-                    self?.refreshLibraryAfterWakeOnLAN()
+                    self?.wakeInProgress = false
                 }
             } catch {
+                if error is CancellationError {
+                    await MainActor.run {
+                        self?.wakeInProgress = false
+                    }
+                    return
+                }
+
                 await MainActor.run {
+                    self?.wakeInProgress = false
                     self?.recordWakeOnLANError(error)
                 }
             }
@@ -944,14 +1118,20 @@ final class AppCoordinator: ObservableObject {
 
         switch result {
         case let .success((applications, runningStatus)):
+            hostReachabilityState = .reachable
             if stopInProgress, runningStatus.currentApplicationID == 0 {
                 stopInProgress = false
                 libraryActionError = nil
             }
 
+            if wakeInProgress {
+                wakeInProgress = false
+            }
+
             currentRunningApplicationID = runningStatus.currentApplicationID
             libraryState = .loaded(applicationsMarkingRunning(applications, runningApplicationID: runningStatus.currentApplicationID))
         case let .failure(error):
+            hostReachabilityState = .unreachable(error.localizedDescription)
             if showLoadingIndicator || !hasLoadedApplications {
                 libraryState = .failed(error.localizedDescription)
             }
@@ -1039,28 +1219,39 @@ final class AppCoordinator: ObservableObject {
         await refreshHostState()
     }
 
-    private func refreshHostState() async {
+    @discardableResult
+    private func refreshHostState() async -> Bool {
         guard pairedHost != nil else {
-            return
+            hostReachabilityState = .unknown
+            return false
         }
 
         do {
             guard let artifacts = try pairedHostStore.loadCurrentArtifacts() else {
-                return
+                hostReachabilityState = .unknown
+                return false
             }
 
             let runningStatus = try await libraryClient.fetchRunningStatus(using: artifacts)
 
             guard !Task.isCancelled else {
-                return
+                return false
             }
 
+            hostReachabilityState = .reachable
             applyRunningStatus(runningStatus)
 
             if shouldRefreshLibrary(for: runningStatus.currentApplicationID) {
                 refreshLibrary(force: true, showLoadingIndicator: false)
             }
+            return true
         } catch {
+            guard !Task.isCancelled else {
+                return false
+            }
+
+            hostReachabilityState = .unreachable(error.localizedDescription)
+            return false
         }
     }
 
@@ -1287,16 +1478,105 @@ final class AppCoordinator: ObservableObject {
         }
 
         stopInProgress = true
-        defer { stopInProgress = false }
 
         guard let artifacts = try pairedHostStore.loadCurrentArtifacts() else {
+            stopInProgress = false
             throw AppSettingsError.missingHost
         }
 
-        try await libraryClient.stopRunningApplication(using: artifacts)
-        await MainActor.run {
-            self.applyRunningStatus(HostRunningStatus(currentApplicationID: 0))
+        do {
+            try await libraryClient.stopRunningApplication(using: artifacts)
+        } catch {
+            stopInProgress = false
+            throw error
         }
+
+        await MainActor.run {
+            self.hostReachabilityState = .reachable
+        }
+    }
+
+    private var menuBarPopupState: MenuBarPopupState {
+        if activeSessionController != nil || launchInProgress {
+            return .streaming
+        }
+
+        if currentRunningApplicationID != 0 {
+            return .paused
+        }
+
+        if isHostReachable {
+            return .ready
+        }
+
+        return .offline
+    }
+
+    private var isHostReachable: Bool {
+        if case .reachable = hostReachabilityState {
+            return true
+        }
+
+        return false
+    }
+
+    private var offlineDescriptionText: String {
+        if pairedHost == nil {
+            return "Open Settings to pair a Sunshine host."
+        }
+
+        if case let .unreachable(message) = hostReachabilityState,
+           !message.isEmpty {
+            return message
+        }
+
+        return "Sunshine host is unavailable"
+    }
+
+    private var configuredStreamInfoText: String {
+        let resolution = currentStreamResolution ?? configuredStreamResolution
+        let fps = currentStreamFPS ?? configuredStreamFPS
+        return "\(resolution.width) x \(resolution.height) @ \(fps) Hz"
+    }
+
+    private var offlinePrimaryButton: MenuBarPopupButton {
+        if pairedHost == nil {
+            return .init(
+                title: "Start",
+                systemImage: "play.fill",
+                action: .none,
+                isEnabled: false,
+                showsProgress: false
+            )
+        }
+
+        if wakeInProgress {
+            return .init(
+                title: "Waking Up",
+                systemImage: nil,
+                action: .none,
+                isEnabled: false,
+                showsProgress: true
+            )
+        }
+
+        return .init(
+            title: "Wake Up",
+            systemImage: hasWakeOnLANConfiguration ? "wake.circle" : "play.fill",
+            action: hasWakeOnLANConfiguration ? .wakeUp : .none,
+            isEnabled: hasWakeOnLANConfiguration,
+            showsProgress: false
+        )
+    }
+
+    private var disabledStopButton: MenuBarPopupButton {
+        .init(
+            title: "Stop",
+            systemImage: "stop.fill",
+            action: .none,
+            isEnabled: false,
+            showsProgress: false
+        )
     }
 
     private func teardownActiveSession(closeErrorWindow: Bool) async {
