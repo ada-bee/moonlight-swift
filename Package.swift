@@ -132,7 +132,8 @@ let package = Package(
             dependencies: ["MoonlightCore"],
             path: "app/Sources/AppShell",
             exclude: [
-                "Resources/Info.plist"
+                "Resources/Info.plist",
+                "Resources/GameStream.icon"
             ],
             resources: [
                 .copy("Resources/GameStream.icns"),

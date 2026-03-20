@@ -14,11 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
-
-        if let iconURL = Bundle.main.url(forResource: "GameStream", withExtension: "icns"),
-           let iconImage = NSImage(contentsOf: iconURL) {
-            NSApp.applicationIconImage = iconImage
-        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
