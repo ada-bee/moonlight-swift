@@ -1,6 +1,40 @@
 import Foundation
 
 public struct AppSettings: Codable, Sendable {
+    public struct Input: Codable, Sendable {
+        public var rawMouseSensitivity: Double
+
+        public init(rawMouseSensitivity: Double) {
+            self.rawMouseSensitivity = Self.clampedRawMouseSensitivity(rawMouseSensitivity)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case rawMouseSensitivity
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            rawMouseSensitivity = Self.clampedRawMouseSensitivity(
+                try container.decodeIfPresent(Double.self, forKey: .rawMouseSensitivity) ?? Self.defaultRawMouseSensitivity
+            )
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(rawMouseSensitivity, forKey: .rawMouseSensitivity)
+        }
+
+        public static let defaultRawMouseSensitivity = 1.0
+
+        public var effectiveRawMouseScale: Double {
+            rawMouseSensitivity
+        }
+
+        public static func clampedRawMouseSensitivity(_ value: Double) -> Double {
+            min(max(value, 0.1), 4.0)
+        }
+    }
+
     public struct Video: Codable, Sendable {
         public var resolution: MVPConfiguration.Video.Resolution
         public var fps: Int
@@ -107,12 +141,14 @@ public struct AppSettings: Codable, Sendable {
     }
 
     public var host: HostAuthority?
+    public var input: Input
     public var video: Video
     public var streamMode: StreamMode
     public var pendingPairingResetOnNextLaunch: Bool
 
     private enum CodingKeys: String, CodingKey {
         case host
+        case input
         case video
         case streamMode
         case launchesFullscreen
@@ -121,11 +157,13 @@ public struct AppSettings: Codable, Sendable {
 
     public init(
         host: HostAuthority?,
+        input: Input,
         video: Video,
         streamMode: StreamMode,
         pendingPairingResetOnNextLaunch: Bool
     ) {
         self.host = host
+        self.input = input
         self.video = video
         self.streamMode = streamMode
         self.pendingPairingResetOnNextLaunch = pendingPairingResetOnNextLaunch
@@ -134,6 +172,7 @@ public struct AppSettings: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         host = try container.decodeIfPresent(HostAuthority.self, forKey: .host)
+        input = try container.decodeIfPresent(Input.self, forKey: .input) ?? AppSettings.initial.input
         video = try container.decodeIfPresent(Video.self, forKey: .video) ?? AppSettings.initial.video
         if let decodedMode = try container.decodeIfPresent(StreamMode.self, forKey: .streamMode) {
             streamMode = decodedMode
@@ -146,6 +185,7 @@ public struct AppSettings: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(host, forKey: .host)
+        try container.encode(input, forKey: .input)
         try container.encode(video, forKey: .video)
         try container.encode(streamMode, forKey: .streamMode)
         try container.encode(pendingPairingResetOnNextLaunch, forKey: .pendingPairingResetOnNextLaunch)
@@ -163,6 +203,7 @@ public extension AppSettings {
 
     static let initial = AppSettings(
         host: nil,
+        input: .init(rawMouseSensitivity: AppSettings.Input.defaultRawMouseSensitivity),
         video: initialWindowedVideo,
         streamMode: .windowed,
         pendingPairingResetOnNextLaunch: false
@@ -184,6 +225,7 @@ public extension AppSettings {
         return MVPConfiguration(
             host: .init(address: host.address, port: host.port, appID: appID),
             session: .init(autoConnectOnLaunch: autoConnectOnLaunch, requestResume: requestResume),
+            input: .init(rawMouseSensitivity: input.rawMouseSensitivity),
             video: .init(
                 resolution: requestedResolution,
                 fps: fps ?? video.fps,

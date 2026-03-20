@@ -1,6 +1,22 @@
 import Foundation
 
 public struct MVPConfiguration: Sendable, Codable {
+    public struct Input: Sendable, Codable {
+        public var rawMouseSensitivity: Double
+
+        public init(rawMouseSensitivity: Double) {
+            self.rawMouseSensitivity = Self.clampedRawMouseSensitivity(rawMouseSensitivity)
+        }
+
+        public static func clampedRawMouseSensitivity(_ value: Double) -> Double {
+            min(max(value, 0.1), 4.0)
+        }
+
+        public var effectiveRawMouseScale: Double {
+            rawMouseSensitivity
+        }
+    }
+
     public struct Host: Sendable, Codable {
         public var address: String
         public var port: Int
@@ -108,15 +124,18 @@ public struct MVPConfiguration: Sendable, Codable {
 
     public var host: Host
     public var session: Session
+    public var input: Input
     public var video: Video
 
     public init(
         host: Host,
         session: Session,
+        input: Input,
         video: Video
     ) {
         self.host = host
         self.session = session
+        self.input = input
         self.video = video
     }
 }
@@ -129,6 +148,7 @@ public extension MVPConfiguration {
             appID: 881448767
         ),
         session: .init(autoConnectOnLaunch: true, requestResume: false),
+        input: .init(rawMouseSensitivity: 1.0),
         video: .init(
             resolution: .init(width: 2560, height: 1440),
             fps: 120,

@@ -11,10 +11,13 @@ struct SettingsView: View {
     @State private var hostFeedbackIsError = false
     @State private var wakeOnLANFeedbackMessage: String?
     @State private var wakeOnLANFeedbackIsError = false
+    @State private var inputFeedbackMessage: String?
+    @State private var inputFeedbackIsError = false
     @State private var selectedResolutionID = ""
     @State private var selectedFPS = 120
     @State private var resolutionWidthInput = ""
     @State private var resolutionHeightInput = ""
+    @State private var rawMouseSensitivity = AppSettings.Input.defaultRawMouseSensitivity
     @State private var streamFeedbackMessage: String?
     @State private var streamFeedbackIsError = false
     @State private var resetInProgress = false
@@ -98,6 +101,36 @@ struct SettingsView: View {
                     }
 
                     feedbackText(streamFeedbackMessage, isError: streamFeedbackIsError)
+                }
+
+                preferenceSection(
+                    title: "Input",
+                    description: "Tune relative mouse input for Windows Sunshine hosts. The slider trims GameController mouse deltas before they are sent to Sunshine."
+                ) {
+                    settingsGroup {
+                        VStack(alignment: .leading, spacing: 8) {
+                            labeledRow("Raw Mouse Scale") {
+                                HStack(spacing: 12) {
+                                    Slider(
+                                        value: rawMouseSensitivityBinding,
+                                        in: 0.5...1.5,
+                                        step: 0.01
+                                    )
+                                    .frame(maxWidth: 220)
+
+                                    Text(rawMouseSensitivityLabel)
+                                        .font(.system(.body, design: .monospaced))
+                                        .frame(width: 52, alignment: .trailing)
+                                }
+                            }
+
+                            Text("Lower this if remote desktop motion feels too fast. The existing fractional carry stays intact, so this only changes overall scale.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    feedbackText(inputFeedbackMessage, isError: inputFeedbackIsError)
                 }
 
                 preferenceSection(
@@ -199,6 +232,8 @@ struct SettingsView: View {
             clearHostFeedbackIfNeeded()
             syncSelectedResolutionIfNeeded()
             syncSelectedFPSIfNeeded()
+            syncInputSettings()
+            updateInputFeedback()
         }
         .onReceive(coordinator.$pairedHost) { _ in
             loadWakeOnLANConfiguration()
@@ -346,12 +381,28 @@ struct SettingsView: View {
         return options.sorted()
     }
 
+    private var rawMouseSensitivityLabel: String {
+        rawMouseSensitivity.formatted(.number.precision(.fractionLength(2)))
+    }
+
+    private var rawMouseSensitivityBinding: Binding<Double> {
+        Binding(
+            get: { rawMouseSensitivity },
+            set: { newValue in
+                rawMouseSensitivity = newValue
+                saveInputSettingsIfPossible()
+            }
+        )
+    }
+
     private func loadState() {
         hostInput = coordinator.settings.host?.displayString ?? ""
         loadWakeOnLANConfiguration()
         clearHostFeedbackIfNeeded()
         syncSelectedResolutionIfNeeded()
         syncSelectedFPSIfNeeded()
+        syncInputSettings()
+        updateInputFeedback()
     }
 
     private func clearHostFeedbackIfNeeded() {
@@ -393,6 +444,22 @@ struct SettingsView: View {
         selectedFPS = coordinator.windowedStreamFPS
     }
 
+    private func syncInputSettings() {
+        rawMouseSensitivity = coordinator.settings.input.rawMouseSensitivity
+    }
+
+    private func updateInputFeedback(message: String? = nil, isError: Bool = false) {
+        if let message {
+            inputFeedbackMessage = message
+            inputFeedbackIsError = isError
+            return
+        }
+
+        let effectiveScale = coordinator.settings.input.effectiveRawMouseScale
+        inputFeedbackMessage = "Effective relative scale: \(effectiveScale.formatted(.number.precision(.fractionLength(2))))x"
+        inputFeedbackIsError = false
+    }
+
     private func saveWindowedVideoSettingsIfPossible() {
         guard let resolution = supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID }) else {
             return
@@ -407,6 +474,16 @@ struct SettingsView: View {
         } catch {
             streamFeedbackMessage = error.localizedDescription
             streamFeedbackIsError = true
+        }
+    }
+
+    private func saveInputSettingsIfPossible() {
+        do {
+            try coordinator.saveInputSettings(rawMouseSensitivity: rawMouseSensitivity)
+            syncInputSettings()
+            updateInputFeedback()
+        } catch {
+            updateInputFeedback(message: error.localizedDescription, isError: true)
         }
     }
 

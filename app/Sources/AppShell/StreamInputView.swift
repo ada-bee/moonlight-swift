@@ -5,7 +5,67 @@ import MoonlightCore
 
 @MainActor
 final class StreamInputView: NSView {
-    private static let rawMouseDeviceScale = 0.9
+    private static let rawMouseQueue = DispatchQueue(label: "GameStream.RawMouse", qos: .userInteractive)
+
+    private final class RawMouseDispatchState {
+        private let lock = NSLock()
+        private var remainderX = 0.0
+        private var remainderY = 0.0
+        private var mouseMode: StreamMouseMode = .absolute
+        private var mouseCaptureActive = false
+        private var rawMouseScale = 1.0
+
+        func update(mouseMode: StreamMouseMode? = nil, mouseCaptureActive: Bool? = nil, rawMouseScale: Double? = nil) {
+            lock.lock()
+            defer { lock.unlock() }
+
+            if let mouseMode {
+                self.mouseMode = mouseMode
+            }
+            if let mouseCaptureActive {
+                self.mouseCaptureActive = mouseCaptureActive
+            }
+            if let rawMouseScale {
+                self.rawMouseScale = rawMouseScale
+            }
+        }
+
+        func reset() {
+            lock.lock()
+            remainderX = 0
+            remainderY = 0
+            lock.unlock()
+        }
+
+        func translate(deltaX: Double, deltaY: Double) -> (Int32, Int32)? {
+            lock.lock()
+            defer { lock.unlock() }
+
+            guard mouseMode == .raw, mouseCaptureActive else {
+                return nil
+            }
+
+            let translatedDeltaX = Self.translate(value: deltaX * rawMouseScale, remainder: &remainderX)
+            let translatedDeltaY = Self.translate(value: -deltaY * rawMouseScale, remainder: &remainderY)
+
+            guard translatedDeltaX != 0 || translatedDeltaY != 0 else {
+                return nil
+            }
+
+            return (translatedDeltaX, translatedDeltaY)
+        }
+
+        private static func translate(value: Double, remainder: inout Double) -> Int32 {
+            guard value.isFinite else {
+                return 0
+            }
+
+            let totalDelta = remainder + value
+            let integralDelta = totalDelta.rounded(.towardZero)
+            remainder = totalDelta - integralDelta
+            return Int32(clamping: Int64(integralDelta))
+        }
+    }
 
     private struct PressedKeyState {
         let mapping: WindowsVirtualKeyMap.Mapping
@@ -22,6 +82,8 @@ final class StreamInputView: NSView {
 
     private let sessionController: SessionController
     private let streamResolution: CGSize
+    private let rawMouseDispatchState = RawMouseDispatchState()
+    private var rawMouseScale: Double
 
     private var trackingArea: NSTrackingArea?
     private var rawMouseObservers: [NSObjectProtocol] = []
@@ -32,8 +94,6 @@ final class StreamInputView: NSView {
     private var continueAbsoluteDragOutsideVideoRegion = false
     private var mouseCaptureActive = false
     private var localCursorHiddenByView = false
-    private var rawRelativeMouseRemainderX = 0.0
-    private var rawRelativeMouseRemainderY = 0.0
     private var physicallyPressedMouseButtons: Set<SessionController.MouseButton> = []
     private var remotelyPressedMouseButtons: Set<SessionController.MouseButton> = []
     private var physicallyPressedKeyboardInputs: [UInt16: PressedKeyState] = [:]
@@ -70,6 +130,7 @@ final class StreamInputView: NSView {
                 return
             }
 
+            rawMouseDispatchState.update(mouseMode: mouseMode)
             resetInputState(releaseRemote: true, clearLocal: true, resetPointerTracking: false)
         }
     }
@@ -78,12 +139,14 @@ final class StreamInputView: NSView {
         self.sessionController = sessionController
         let resolution = sessionController.configuration.video.resolution
         self.streamResolution = CGSize(width: resolution.width, height: resolution.height)
+        self.rawMouseScale = sessionController.configuration.input.effectiveRawMouseScale
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.cornerRadius = 14
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
+        rawMouseDispatchState.update(mouseMode: mouseMode, mouseCaptureActive: mouseCaptureActive, rawMouseScale: rawMouseScale)
         configureRawMouseObservation()
     }
 
@@ -149,11 +212,18 @@ final class StreamInputView: NSView {
         }
 
         mouseCaptureActive = isActive
+        rawMouseDispatchState.update(mouseCaptureActive: isActive)
         if isActive {
             updateCursorVisibility()
         } else {
             resetInputState(releaseRemote: true, clearLocal: true, resetPointerTracking: false)
         }
+    }
+
+    func updateInputConfiguration(_ input: MVPConfiguration.Input) {
+        rawMouseScale = input.effectiveRawMouseScale
+        rawMouseDispatchState.update(rawMouseScale: rawMouseScale)
+        rawMouseDispatchState.reset()
     }
 
     func releaseAllRemoteInputs() {
@@ -440,8 +510,7 @@ private extension StreamInputView {
     func clearInputBookkeepingOnly() {
         commandKeyActive = false
         setLocalShortcutSuppression(false)
-        rawRelativeMouseRemainderX = 0
-        rawRelativeMouseRemainderY = 0
+        rawMouseDispatchState.reset()
         physicallyPressedMouseButtons.removeAll()
         remotelyPressedMouseButtons.removeAll()
         physicallyPressedKeyboardInputs.removeAll()
@@ -485,14 +554,8 @@ private extension StreamInputView {
                 return
             }
 
-            if hasRawMouseDeviceInput {
-                return
-            }
-
-            let deltaX = Int32(rawRelativeMouseDeltaX(for: event))
-            let deltaY = Int32(rawRelativeMouseDeltaY(for: event))
-            if deltaX != 0 || deltaY != 0 {
-                sessionController.sendRelativeMouse(deltaX: deltaX, deltaY: deltaY)
+            if hasRawMouseDeviceInput == false {
+                refreshRawMouseDevices()
             }
             return
         }
@@ -743,69 +806,6 @@ private extension StreamInputView {
         return Int32(scaledDelta.rounded())
     }
 
-    func rawRelativeMouseDeltaX(for event: NSEvent) -> Int32 {
-        rawRelativeMouseDelta(
-            for: event,
-            field: .mouseEventDeltaX,
-            fallback: Double(event.deltaX),
-            remainder: &rawRelativeMouseRemainderX
-        )
-    }
-
-    func rawRelativeMouseDeltaY(for event: NSEvent) -> Int32 {
-        rawRelativeMouseDelta(
-            for: event,
-            field: .mouseEventDeltaY,
-            fallback: Double(event.deltaY),
-            remainder: &rawRelativeMouseRemainderY
-        )
-    }
-
-    func handleRawMouseDeviceMotion(deltaX: Double, deltaY: Double) {
-        guard mouseMode == .raw, mouseCaptureActive else {
-            return
-        }
-
-        let translatedDeltaX = rawRelativeMouseDelta(
-            value: deltaX * Self.rawMouseDeviceScale,
-            remainder: &rawRelativeMouseRemainderX
-        )
-        let translatedDeltaY = rawRelativeMouseDelta(
-            value: -deltaY * Self.rawMouseDeviceScale,
-            remainder: &rawRelativeMouseRemainderY
-        )
-        if translatedDeltaX != 0 || translatedDeltaY != 0 {
-            sessionController.sendRelativeMouse(deltaX: translatedDeltaX, deltaY: translatedDeltaY)
-        }
-    }
-
-    func rawRelativeMouseDelta(
-        for event: NSEvent,
-        field: CGEventField,
-        fallback: Double,
-        remainder: inout Double
-    ) -> Int32 {
-        let delta: Double
-        if let cgEvent = event.cgEvent {
-            delta = cgEvent.getDoubleValueField(field)
-        } else {
-            delta = fallback
-        }
-
-        return rawRelativeMouseDelta(value: delta, remainder: &remainder)
-    }
-
-    func rawRelativeMouseDelta(value: Double, remainder: inout Double) -> Int32 {
-        guard value.isFinite else {
-            return 0
-        }
-
-        let totalDelta = remainder + value
-        let integralDelta = totalDelta.rounded(.towardZero)
-        remainder = totalDelta - integralDelta
-        return Int32(clamping: Int64(integralDelta))
-    }
-
     func configureRawMouseObservation() {
         let notificationCenter = NotificationCenter.default
         rawMouseObservers = [
@@ -859,9 +859,18 @@ private extension StreamInputView {
                 continue
             }
 
-            mouse.handlerQueue = DispatchQueue.main
+            mouse.handlerQueue = Self.rawMouseQueue
             mouse.mouseInput?.mouseMovedHandler = { [weak self] _, deltaX, deltaY in
-                self?.handleRawMouseDeviceMotion(deltaX: Double(deltaX), deltaY: Double(deltaY))
+                guard let self else {
+                    return
+                }
+
+                if let (translatedDeltaX, translatedDeltaY) = self.rawMouseDispatchState.translate(
+                    deltaX: Double(deltaX),
+                    deltaY: Double(deltaY)
+                ) {
+                    self.sessionController.sendRelativeMouse(deltaX: translatedDeltaX, deltaY: translatedDeltaY)
+                }
             }
             rawMouseDevices[identifier] = mouse
         }

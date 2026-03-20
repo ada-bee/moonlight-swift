@@ -584,6 +584,21 @@ final class AppCoordinator: ObservableObject {
         try persistSettings(updatedSettings)
     }
 
+    func saveInputSettings(
+        rawMouseSensitivity: Double
+    ) throws {
+        var updatedSettings = settings
+        updatedSettings.input = .init(rawMouseSensitivity: rawMouseSensitivity)
+
+        try persistSettings(updatedSettings)
+
+        if activeSessionController != nil {
+            activeStreamWindowController?.updateInputConfiguration(
+                .init(rawMouseSensitivity: updatedSettings.input.rawMouseSensitivity)
+            )
+        }
+    }
+
     func resetPairing() async throws {
         libraryRefreshTask?.cancel()
         libraryRefreshTask = nil
