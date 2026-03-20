@@ -1462,6 +1462,10 @@ final class AppCoordinator: ObservableObject {
             return "Open Settings to pair a Sunshine host."
         }
 
+        if wakeInProgress {
+            return "Waiting for the Sunshine host to wake up."
+        }
+
         if case let .unreachable(message) = hostReachabilityState,
            !message.isEmpty {
             return message
