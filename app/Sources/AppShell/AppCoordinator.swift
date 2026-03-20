@@ -66,13 +66,6 @@ final class AppCoordinator: ObservableObject {
         case failed(String)
     }
 
-    enum HostAvailabilityState: Equatable {
-        case unconfigured
-        case checking
-        case reachable
-        case unreachable(String)
-    }
-
     private enum HostReachabilityState: Equatable {
         case unknown
         case reachable
@@ -272,13 +265,8 @@ final class AppCoordinator: ObservableObject {
     }
 
     func handlePrimaryActivationRequest() {
-        if let activeStreamWindowController {
-            if activeStreamWindowController.isWindowVisible {
-                presentActiveStreamWindow()
-                return
-            }
-
-            showExistingStreamWindow()
+        if activeStreamWindowController != nil {
+            presentActiveStreamWindow()
             return
         }
 
@@ -357,12 +345,6 @@ final class AppCoordinator: ObservableObject {
     func terminateApplication() {
         stopSessionAndHideWindow()
         NSApp.terminate(nil)
-    }
-
-    private func showExistingStreamWindow() {
-        setDockVisibility(true)
-        activeStreamWindowController?.present()
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private var isErrorWindowVisible: Bool {
@@ -456,14 +438,6 @@ final class AppCoordinator: ObservableObject {
         currentRunningApplicationID != 0
     }
 
-    var runningApplicationTitle: String {
-        guard currentRunningApplicationID != 0 else {
-            return "Nothing running"
-        }
-
-        return displayName(for: currentRunningApplicationID)
-    }
-
     var streamMode: StreamMode {
         settings.streamMode
     }
@@ -524,21 +498,6 @@ final class AppCoordinator: ObservableObject {
         launchVideoMode(for: streamMode).fps
     }
 
-    var hostAvailabilityState: HostAvailabilityState {
-        guard pairedHost != nil else {
-            return .unconfigured
-        }
-
-        switch hostReachabilityState {
-        case .unknown:
-            return .checking
-        case .reachable:
-            return .reachable
-        case let .unreachable(message):
-            return .unreachable(message)
-        }
-    }
-
     var hasWakeOnLANConfiguration: Bool {
         pairedHost?.wakeOnLANConfiguration != nil
     }
@@ -565,20 +524,6 @@ final class AppCoordinator: ObservableObject {
 
     var canStopRunningApplication: Bool {
         hasRunningApplication && !launchInProgress && !stopInProgress
-    }
-
-    var primaryActionTitle: String {
-        switch streamActivityState {
-        case .inactive:
-            return "Launch Desktop"
-        case .paused:
-            if currentRunningApplicationID == Self.desktopApplicationID {
-                return "Resume Desktop"
-            }
-            return "Launch Desktop"
-        case .streaming:
-            return activeStreamApplicationID == Self.desktopApplicationID ? "Show Desktop" : "Show Stream"
-        }
     }
 
     func performMenuBarPopupAction(_ action: MenuBarPopupAction) {
@@ -888,14 +833,6 @@ final class AppCoordinator: ObservableObject {
         Task { [weak self] in
             await self?.teardownActiveSession(closeErrorWindow: true)
         }
-    }
-
-    var canHideActiveStreamWindow: Bool {
-        activeStreamWindowController?.isWindowVisible == true
-    }
-
-    var canStopSessionAndHideWindow: Bool {
-        activeSessionController != nil || currentRunningApplicationID != 0
     }
 
     func sendWakeOnLANMagicPacket() {

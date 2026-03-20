@@ -29,9 +29,6 @@ struct AppMain: App {
             MenuBarStatusIcon(streamActivityState: coordinator.streamActivityState)
         }
         .menuBarExtraStyle(.window)
-        .commands {
-            StreamCommands(coordinator: coordinator)
-        }
 
         Settings {
             SettingsView(coordinator: coordinator)
