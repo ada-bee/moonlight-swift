@@ -21,12 +21,18 @@ struct MenuBarView: View {
     @ObservedObject var coordinator: AppCoordinator
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
+            if let message = coordinator.libraryActionError {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(Color(nsColor: .systemRed))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 2)
+            }
+
             sessionSection
-            Divider()
-            utilitySection
         }
-        .padding(14)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             coordinator.menuBarDidOpen()
@@ -34,145 +40,191 @@ struct MenuBarView: View {
     }
 
     private var sessionSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        menuPanel {
             switch coordinator.streamActivityState {
             case .streaming, .paused:
                 runningSessionContent
             case .inactive:
                 inactiveSessionContent
             }
-
-            if let message = coordinator.libraryActionError {
-                Text(message)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(nsColor: .systemRed))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
     private var runningSessionContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(sessionStatusText)
-                        .font(.headline)
+                        .font(.title2.weight(.semibold))
                         .foregroundStyle(sessionStatusColor)
                         .lineLimit(1)
 
                     Text(streamInfoText)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 0)
 
-                HStack(spacing: 8) {
+                streamModeToggle
+            }
+
+            if hasTransportControls {
+                HStack(spacing: 10) {
                     if coordinator.canPauseRunningApplication {
-                        actionGlyphButton(
+                        actionButton(
                             systemImage: "pause.fill",
                             title: "Pause",
+                            prominence: .caution,
                             action: coordinator.pauseRunningApplication
                         )
                     }
 
                     if coordinator.canResumeRunningApplication {
-                        actionGlyphButton(
+                        actionButton(
                             systemImage: "play.fill",
                             title: "Resume",
+                            prominence: .positive,
                             action: coordinator.resumeRunningApplication
                         )
                     }
 
                     if coordinator.canStopRunningApplication {
-                        actionGlyphButton(
+                        actionButton(
                             systemImage: "stop.fill",
                             title: "Stop",
                             role: .destructive,
+                            prominence: .destructive,
                             action: coordinator.stopRunningApplication
                         )
                     }
+
+                    utilitySection
                 }
             }
 
-            Toggle("Fullscreen", isOn: fullscreenBinding)
-                .toggleStyle(.switch)
-                .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
-
-            Text(fullscreenHelpText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var inactiveSessionContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(hostStatusText)
-                    .font(.headline)
-                    .foregroundStyle(hostStatusColor)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(hostStatusText)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(hostStatusColor)
 
-                Text(hostDetailText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            switch coordinator.hostAvailabilityState {
-            case .unreachable:
-                if coordinator.hasWakeOnLANConfiguration {
-                    Button("Send Wake Packet", action: coordinator.sendWakeOnLANMagicPacket)
-                        .buttonStyle(.borderedProminent)
+                    Text(hostDetailText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-            case .unconfigured, .checking, .reachable:
-                EmptyView()
+                Spacer(minLength: 0)
+
+                streamModeToggle
             }
 
-            if canRunPrimaryAction {
-                Button(primaryActionTitle, action: handlePrimaryAction)
-                    .buttonStyle(.bordered)
+            HStack(spacing: 10) {
+                switch coordinator.hostAvailabilityState {
+                case .unreachable:
+                    if coordinator.hasWakeOnLANConfiguration {
+                        actionButton(
+                            systemImage: "wake.circle",
+                            title: "Send Wake Packet",
+                            action: coordinator.sendWakeOnLANMagicPacket
+                        )
+                    }
+
+                case .unconfigured, .checking, .reachable:
+                    EmptyView()
+                }
+
+                if canRunPrimaryAction {
+                    actionButton(
+                        systemImage: primaryActionSymbol,
+                        title: primaryActionButtonTitle,
+                        prominence: .caution,
+                        action: handlePrimaryAction
+                    )
+                }
+
+                utilitySection
             }
         }
     }
 
     private var utilitySection: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             SettingsLink {
-                Label("Settings", systemImage: "gearshape")
-                    .frame(maxWidth: .infinity)
+                utilityIconLabel(title: "Settings", systemImage: "gearshape")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .help("Settings")
 
             Button(action: coordinator.terminateApplication) {
-                Label("Quit", systemImage: "power")
-                    .frame(maxWidth: .infinity)
+                utilityIconLabel(title: "Quit", systemImage: "power")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .help("Quit")
         }
     }
 
-    private func actionGlyphButton(
+    private func utilityIconLabel(title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .labelStyle(.iconOnly)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            .frame(width: 34, height: 34)
+            .glassEffect(.clear, in: Circle())
+    }
+
+    private var streamModeToggle: some View {
+        Toggle(isOn: fullscreenBinding) {
+            Image(systemName: streamModeGlyphSymbol)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 20, height: 20)
+                .padding(.trailing, 4)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.regular)
+        .help(streamModeHelpText)
+        .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
+        .accessibilityLabel(streamModeAccessibilityLabel)
+    }
+
+    private func menuPanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14, content: content)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func actionButton(
         systemImage: String,
         title: String,
         role: ButtonRole? = nil,
+        prominence: ActionButtonProminence = .standard,
         action: @escaping () -> Void
     ) -> some View {
         Button(role: role, action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .contentShape(Circle())
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 24)
         }
-        .buttonStyle(.borderless)
-        .background(.thinMaterial, in: Circle())
-        .overlay(
-            Circle()
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .font(.body.weight(.semibold))
+        .layoutPriority(1)
+        .tint(buttonTint(for: prominence))
         .help(title)
+    }
+
+    private var hasTransportControls: Bool {
+        coordinator.canPauseRunningApplication || coordinator.canResumeRunningApplication || coordinator.canStopRunningApplication
     }
 
     private var unreachableDetailText: String {
@@ -267,21 +319,32 @@ struct MenuBarView: View {
             get: { coordinator.streamMode == .fullscreen },
             set: { isSelected in
                 coordinator.setStreamMode(isSelected ? .fullscreen : .windowed)
-                dismiss()
             }
         )
     }
 
-    private var fullscreenHelpText: String {
-        if coordinator.streamMode == .fullscreen {
-            return "Fullscreen uses raw mouse input and reconnects at the display's native size and refresh rate."
-        }
-
-        return "Windowed uses absolute cursor input and the resolution and frame rate from Settings."
-    }
-
     private var primaryActionTitle: String {
         coordinator.primaryActionTitle
+    }
+
+    private var primaryActionButtonTitle: String {
+        switch primaryActionTitle {
+        case "Launch Desktop":
+            return "Launch"
+        default:
+            return primaryActionTitle
+        }
+    }
+
+    private var primaryActionSymbol: String {
+        switch coordinator.streamActivityState {
+        case .inactive:
+            return "desktopcomputer"
+        case .paused:
+            return coordinator.canResumeRunningApplication ? "play.fill" : "desktopcomputer"
+        case .streaming:
+            return "macwindow.on.rectangle"
+        }
     }
 
     private var canRunPrimaryAction: Bool {
@@ -311,6 +374,53 @@ struct MenuBarView: View {
         case .streaming:
             coordinator.presentActiveStreamWindow()
         }
+    }
+
+    private func buttonTint(for prominence: ActionButtonProminence) -> Color? {
+        switch prominence {
+        case .standard:
+            return nil
+        case .positive:
+            return Color(nsColor: .systemGreen)
+        case .caution:
+            return Color(nsColor: .systemOrange)
+        case .destructive:
+            return Color(nsColor: .systemRed)
+        }
+    }
+
+    private var streamModeGlyphSymbol: String {
+        switch coordinator.streamMode {
+        case .fullscreen:
+            return "arrow.up.left.and.arrow.down.right"
+        case .windowed:
+            return "macwindow"
+        }
+    }
+
+    private var streamModeHelpText: String {
+        switch coordinator.streamMode {
+        case .fullscreen:
+            return "Switch to windowed"
+        case .windowed:
+            return "Switch to fullscreen"
+        }
+    }
+
+    private var streamModeAccessibilityLabel: String {
+        switch coordinator.streamMode {
+        case .fullscreen:
+            return "Fullscreen"
+        case .windowed:
+            return "Windowed"
+        }
+    }
+
+    private enum ActionButtonProminence {
+        case standard
+        case positive
+        case caution
+        case destructive
     }
 }
 

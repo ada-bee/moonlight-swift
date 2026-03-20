@@ -24,7 +24,7 @@ struct AppMain: App {
                     appDelegate.coordinator = coordinator
                     coordinator.loadStartupState()
                 }
-                .frame(minWidth: 320)
+                .frame(minWidth: 380)
         } label: {
             MenuBarStatusIcon(streamActivityState: coordinator.streamActivityState)
         }
