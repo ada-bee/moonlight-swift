@@ -7,289 +7,275 @@ struct SettingsView: View {
     @State private var hostInput = ""
     @State private var macAddress = ""
     @State private var broadcastAddress = ""
+    @State private var showPairingFlow = false
+
     @State private var hostFeedbackMessage: String?
     @State private var hostFeedbackIsError = false
     @State private var wakeOnLANFeedbackMessage: String?
     @State private var wakeOnLANFeedbackIsError = false
     @State private var inputFeedbackMessage: String?
     @State private var inputFeedbackIsError = false
-    @State private var selectedResolutionID = ""
-    @State private var selectedFPS = 60
-    @State private var resolutionWidthInput = ""
-    @State private var resolutionHeightInput = ""
-    @State private var rawMouseSensitivity = AppSettings.Input.defaultRawMouseSensitivity
     @State private var streamFeedbackMessage: String?
     @State private var streamFeedbackIsError = false
     @State private var resetInProgress = false
 
-    private static let standardFPSOptions = [30, 60, 90, 120]
+    @State private var rawMouseSensitivity = AppSettings.Input.defaultRawMouseSensitivity
+
+    @State private var windowedWidthInput = ""
+    @State private var windowedHeightInput = ""
+    @State private var windowedFPSInput = ""
+
+    @State private var fullscreenWidthInput = ""
+    @State private var fullscreenHeightInput = ""
+    @State private var fullscreenFPSInput = ""
+    @State private var alwaysUseNativeFullscreenVideoMode = true
+    @State private var alwaysUseNativeFullscreenRawMouseInput = true
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                preferenceSection(
-                    title: "Stream",
-                    description: "Set the single windowed stream resolution and frame rate, and manage the available resolution list."
-                ) {
-                    settingsGroup {
-                        labeledRow("Resolution") {
-                            Picker("Resolution", selection: selectedResolutionBinding) {
-                                ForEach(supportedResolutions, id: \.self) { resolution in
-                                    Text(resolutionLabel(resolution))
-                                        .tag(resolutionID(for: resolution))
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 220, alignment: .leading)
-                            .pickerStyle(.menu)
-                        }
-
-                        Divider()
-
-                        labeledRow("Frame Rate") {
-                            Picker("Frame Rate", selection: selectedFPSBinding) {
-                                ForEach(fpsOptions, id: \.self) { fps in
-                                    Text("\(fps) Hz")
-                                        .tag(fps)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 140, alignment: .leading)
-                            .pickerStyle(.menu)
-                        }
-                    }
-
-                    settingsGroup {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Custom Resolutions")
-                                .font(.headline)
-
-                            Text("Add any supported window size to the list shown in the Resolution menu.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                TextField("Width", text: $resolutionWidthInput)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 90)
-
-                                Text("x")
-                                    .foregroundStyle(.secondary)
-
-                                TextField("Height", text: $resolutionHeightInput)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 90)
-
-                                Button("Add", action: addSupportedResolution)
-                                    .buttonStyle(.bordered)
-                                    .disabled(candidateResolution == nil)
-
-                                Button("Remove", role: .destructive, action: removeSelectedResolution)
-                                    .buttonStyle(.bordered)
-                                    .disabled(selectedSupportedResolution == nil || supportedResolutions.count <= 1)
-
-                                Spacer(minLength: 0)
-
-                                Button("Restore Defaults", action: resetSupportedResolutions)
-                                    .buttonStyle(.bordered)
-                            }
-
-                            Text("Widths and heights must be positive even numbers.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    feedbackText(streamFeedbackMessage, isError: streamFeedbackIsError)
-                }
-
-                preferenceSection(
-                    title: "Input",
-                    description: "Tune relative mouse input for Windows Sunshine hosts. The slider trims GameController mouse deltas before they are sent to Sunshine."
-                ) {
-                    settingsGroup {
-                        VStack(alignment: .leading, spacing: 8) {
-                            labeledRow("Raw Mouse Scale") {
-                                HStack(spacing: 12) {
-                                    Slider(
-                                        value: rawMouseSensitivityBinding,
-                                        in: 0.5...1.5,
-                                        step: 0.01
-                                    )
-                                    .frame(maxWidth: 220)
-
-                                    Text(rawMouseSensitivityLabel)
-                                        .font(.system(.body, design: .monospaced))
-                                        .frame(width: 52, alignment: .trailing)
-                                }
-                            }
-
-                            Text("Lower this if remote desktop motion feels too fast. The existing fractional carry stays intact, so this only changes overall scale.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    feedbackText(inputFeedbackMessage, isError: inputFeedbackIsError)
-                }
-
-                preferenceSection(
-                    title: "Sunshine",
-                    description: "Review the current host, update Wake-on-LAN details, or pair a different machine."
-                ) {
-                    settingsGroup {
-                        VStack(alignment: .leading, spacing: 14) {
-                            hostSummaryView
-
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Wake-on-LAN MAC Address")
-                                    .font(.subheadline.weight(.medium))
-
-                                TextField("00:11:22:33:44:55", text: $macAddress)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(.body, design: .monospaced))
-                                    .disabled(!hasPairedHost)
-
-                                TextField("Broadcast Address (Optional)", text: $broadcastAddress)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(.body, design: .monospaced))
-                                    .disabled(!hasPairedHost)
-
-                                HStack(spacing: 10) {
-                                    Button("Save", action: saveWakeOnLANConfiguration)
-                                        .buttonStyle(.bordered)
-                                        .disabled(!hasPairedHost || trimmedMACAddress.isEmpty)
-
-                                    Button("Clear", role: .destructive, action: clearWakeOnLANConfiguration)
-                                        .buttonStyle(.bordered)
-                                        .disabled(!hasPairedHost || coordinator.pairedHost?.wakeOnLANConfiguration == nil)
-                                }
-
-                                if !hasPairedHost {
-                                    Text("Pair a host before editing Wake-on-LAN settings.")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-
-                    if let wakeOnLANFeedbackMessage {
-                        feedbackText(wakeOnLANFeedbackMessage, isError: wakeOnLANFeedbackIsError)
-                    }
-
-                    settingsGroup {
-                        VStack(alignment: .leading, spacing: 14) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Pair New Host")
-                                    .font(.headline)
-
-                                Text("Enter the Sunshine host as an IP address and port.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            TextField("192.168.1.10:47989", text: $hostInput)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.body, design: .monospaced))
-                                .onSubmit(startPairing)
-
-                            HStack(spacing: 10) {
-                                Button(pairButtonTitle, action: startPairing)
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(trimmedHostInput.isEmpty || coordinator.pairingState.isInProgress)
-
-                                Button("Forget Host", role: .destructive, action: resetPairing)
-                                    .buttonStyle(.bordered)
-                                    .disabled(!hasConfiguredHost || resetInProgress || coordinator.pairingState.isInProgress)
-                            }
-
-                            if let statusText = pairingStatusText {
-                                Text(statusText)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if let pin = pairingPIN {
-                                Text(pin)
-                                    .font(.system(size: 30, weight: .semibold, design: .monospaced))
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
-
-                    feedbackText(hostFeedbackMessage, isError: hostFeedbackIsError)
-                }
+            VStack(alignment: .leading, spacing: 20) {
+                streamSection
+                inputSection
+                sunshineSection
             }
             .padding(24)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(settingsBackground)
         .onAppear(perform: loadState)
         .onReceive(coordinator.$settings) { _ in
-            hostInput = coordinator.settings.host?.displayString ?? ""
-            clearHostFeedbackIfNeeded()
-            syncSelectedResolutionIfNeeded()
-            syncSelectedFPSIfNeeded()
+            syncVideoInputs()
             syncInputSettings()
-            updateInputFeedback()
+
+            if showPairingFlow == false {
+                hostInput = coordinator.settings.host?.displayString ?? ""
+            }
         }
-        .onReceive(coordinator.$pairedHost) { _ in
+        .onReceive(coordinator.$pairedHost) { pairedHost in
             loadWakeOnLANConfiguration()
-            clearHostFeedbackIfNeeded()
+
+            if pairedHost != nil {
+                showPairingFlow = false
+                hostFeedbackMessage = "Sunshine host is paired and ready."
+                hostFeedbackIsError = false
+            }
         }
         .onReceive(coordinator.$pairingState) { state in
-            guard case let .failed(message) = state else {
-                return
+            if case let .failed(message) = state {
+                hostFeedbackMessage = message
+                hostFeedbackIsError = true
+                resetInProgress = false
+            } else if case .idle = state {
+                resetInProgress = false
             }
-
-            hostFeedbackMessage = message
-            hostFeedbackIsError = true
         }
     }
 
-    private var hostSummaryView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Current Host")
-                .font(.headline)
+    private var streamSection: some View {
+        preferenceSection(
+            title: "Video",
+            description: "Configure the fixed launch values for windowed and fullscreen streaming."
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                videoModeEditor(
+                    title: "Windowed",
+                    width: $windowedWidthInput,
+                    height: $windowedHeightInput,
+                    fps: $windowedFPSInput,
+                    isDisabled: false,
+                    action: saveWindowedVideoSettings
+                )
 
-            if let pairedHost = coordinator.pairedHost {
-                LabeledContent("Address", value: pairedHost.host.displayString)
-                    .font(.system(.body, design: .monospaced))
+                Divider()
 
-                if let macAddress = pairedHost.wakeOnLANConfiguration?.macAddress {
-                    LabeledContent("MAC", value: macAddress)
+                videoModeEditor(
+                    title: "Fullscreen",
+                    width: $fullscreenWidthInput,
+                    height: $fullscreenHeightInput,
+                    fps: $fullscreenFPSInput,
+                    isDisabled: alwaysUseNativeFullscreenVideoMode,
+                    action: saveFullscreenVideoSettings
+                )
+
+                Toggle("Always use display native resolution and framerate", isOn: nativeFullscreenVideoBinding)
+                    .toggleStyle(.switch)
+
+                Toggle("Always use native raw mouse input in fullscreen", isOn: nativeRawMouseBinding)
+                    .toggleStyle(.switch)
+            }
+
+            feedbackText(streamFeedbackMessage, isError: streamFeedbackIsError)
+        }
+    }
+
+    private var inputSection: some View {
+        preferenceSection(
+            title: "Input",
+            description: "Tune relative mouse input."
+        ) {
+            labeledRow("Mouse Scale") {
+                HStack(spacing: 12) {
+                    Slider(
+                        value: rawMouseSensitivityBinding,
+                        in: 0.5...1.5,
+                        step: 0.05,
+                        minimumValueLabel: Text("0.5x"),
+                        maximumValueLabel: Text("1.5x")
+                    ) {
+                        EmptyView()
+                    }
+                    .frame(width: 280)
+                    .controlSize(.small)
+
+                    Text(rawMouseSensitivityLabel)
                         .font(.system(.body, design: .monospaced))
+                        .frame(width: 44, alignment: .trailing)
                 }
+            }
 
-                if let broadcastAddress = pairedHost.wakeOnLANConfiguration?.broadcastAddress,
-                   broadcastAddress.isEmpty == false
-                {
-                    LabeledContent("Broadcast", value: broadcastAddress)
-                        .font(.system(.body, design: .monospaced))
-                }
-            } else if let configuredHost = coordinator.settings.host?.displayString {
-                LabeledContent("Address", value: configuredHost)
-                    .font(.system(.body, design: .monospaced))
+            feedbackText(inputFeedbackMessage, isError: inputFeedbackIsError)
+        }
+    }
 
-                Text("The host is saved, but pairing has not completed yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+    private var sunshineSection: some View {
+        preferenceSection(
+            title: "Sunshine",
+            description: "Manage the current host and pair a replacement when needed."
+        ) {
+            if showPairingFlow {
+                pairingFlowCard
             } else {
-                Text("No Sunshine host is configured.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                currentHostCard
+            }
+
+            feedbackText(hostFeedbackMessage, isError: hostFeedbackIsError)
+            feedbackText(wakeOnLANFeedbackMessage, isError: wakeOnLANFeedbackIsError)
+        }
+    }
+
+    private var currentHostCard: some View {
+        settingsCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Current Host")
+                        .font(.headline)
+
+                    Spacer(minLength: 12)
+
+                    Button("Pair New Host", action: prepareForNewHostPairing)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(resetInProgress || coordinator.pairingState.isInProgress)
+                }
+
+                if let currentHostDisplayString {
+                    LabeledContent("Address", value: currentHostDisplayString)
+                        .font(.system(.body, design: .monospaced))
+                } else {
+                    Text("No Sunshine host is configured.")
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Wake-on-LAN")
+                        .font(.headline)
+
+                    HStack(alignment: .top, spacing: 12) {
+                        settingField(title: "MAC Address", placeholder: "00:11:22:33:44:55", text: $macAddress)
+                        settingField(title: "Broadcast", placeholder: "192.168.1.255", text: $broadcastAddress)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button("Save", action: saveWakeOnLANConfiguration)
+                            .buttonStyle(.bordered)
+                            .disabled(!canSaveWakeOnLAN)
+
+                        Button("Clear", role: .destructive, action: clearWakeOnLANConfiguration)
+                            .buttonStyle(.bordered)
+                            .disabled(coordinator.pairedHost?.wakeOnLANConfiguration == nil)
+                    }
+                }
+                .disabled(currentHostDisplayString == nil)
             }
         }
     }
 
-    private var hasConfiguredHost: Bool {
-        coordinator.settings.host != nil
+    private var pairingFlowCard: some View {
+        settingsCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Pair New Host")
+                        .font(.headline)
+
+                    Spacer(minLength: 12)
+
+                    if coordinator.pairingState.isInProgress == false {
+                        Button("Cancel") {
+                            hostFeedbackMessage = nil
+                            hostFeedbackIsError = false
+                            showPairingFlow = false
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                settingField(title: "Sunshine Host", placeholder: "192.168.1.10:47989", text: $hostInput)
+                    .onSubmit(startPairing)
+
+                HStack(spacing: 10) {
+                    Button(pairButtonTitle, action: startPairing)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(trimmedHostInput.isEmpty || coordinator.pairingState.isInProgress || resetInProgress)
+                }
+
+                if let statusText = pairingStatusText {
+                    Text(statusText)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let pin = pairingPIN {
+                    Text(pin)
+                        .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+        }
     }
 
-    private var hasPairedHost: Bool {
-        coordinator.pairedHost != nil
+    private var nativeFullscreenVideoBinding: Binding<Bool> {
+        Binding(
+            get: { alwaysUseNativeFullscreenVideoMode },
+            set: { newValue in
+                alwaysUseNativeFullscreenVideoMode = newValue
+                saveFullscreenPreferences()
+            }
+        )
+    }
+
+    private var nativeRawMouseBinding: Binding<Bool> {
+        Binding(
+            get: { alwaysUseNativeFullscreenRawMouseInput },
+            set: { newValue in
+                alwaysUseNativeFullscreenRawMouseInput = newValue
+                saveFullscreenPreferences()
+            }
+        )
+    }
+
+    private var rawMouseSensitivityBinding: Binding<Double> {
+        Binding(
+            get: { rawMouseSensitivity },
+            set: { newValue in
+                rawMouseSensitivity = newValue
+                saveInputSettingsIfPossible()
+            }
+        )
+    }
+
+    private var rawMouseSensitivityLabel: String {
+        rawMouseSensitivity.formatted(.number.precision(.fractionLength(2)))
+    }
+
+    private var currentHostDisplayString: String? {
+        coordinator.pairedHost?.host.displayString ?? coordinator.settings.host?.displayString
     }
 
     private var trimmedHostInput: String {
@@ -300,63 +286,8 @@ struct SettingsView: View {
         macAddress.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var supportedResolutions: [StreamConfiguration.Video.Resolution] {
-        coordinator.settings.video.supportedResolutions
-    }
-
-    private var defaultResolution: StreamConfiguration.Video.Resolution {
-        coordinator.windowedStreamResolution
-    }
-
-    private var candidateResolution: StreamConfiguration.Video.Resolution? {
-        guard let width = Int(trimmedResolutionWidthInput),
-              let height = Int(trimmedResolutionHeightInput)
-        else {
-            return nil
-        }
-
-        let resolution = StreamConfiguration.Video.Resolution(width: width, height: height)
-        guard AppSettings.Video.isSupportedResolution(resolution) else {
-            return nil
-        }
-
-        return resolution
-    }
-
-    private var selectedSupportedResolution: StreamConfiguration.Video.Resolution? {
-        supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID })
-    }
-
-    private var trimmedResolutionWidthInput: String {
-        resolutionWidthInput.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var trimmedResolutionHeightInput: String {
-        resolutionHeightInput.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var pairButtonTitle: String {
-        coordinator.pairingState.isInProgress ? "Pairing..." : (hasPairedHost ? "Pair New Host" : "Pair Host")
-    }
-
-    private var selectedResolutionBinding: Binding<String> {
-        Binding(
-            get: { selectedResolutionID },
-            set: { newValue in
-                selectedResolutionID = newValue
-                saveWindowedVideoSettingsIfPossible()
-            }
-        )
-    }
-
-    private var selectedFPSBinding: Binding<Int> {
-        Binding(
-            get: { selectedFPS },
-            set: { newValue in
-                selectedFPS = newValue
-                saveWindowedVideoSettingsIfPossible()
-            }
-        )
+        coordinator.pairingState.isInProgress ? "Pairing..." : "Start Pairing"
     }
 
     private var pairingStatusText: String? {
@@ -375,47 +306,44 @@ struct SettingsView: View {
         return nil
     }
 
-    private var fpsOptions: [Int] {
-        var options = Set(Self.standardFPSOptions)
-        options.insert(coordinator.windowedStreamFPS)
-        return options.sorted()
+    private var canSaveWakeOnLAN: Bool {
+        coordinator.pairedHost != nil && trimmedMACAddress.isEmpty == false
     }
 
-    private var rawMouseSensitivityLabel: String {
-        rawMouseSensitivity.formatted(.number.precision(.fractionLength(2)))
-    }
-
-    private var rawMouseSensitivityBinding: Binding<Double> {
-        Binding(
-            get: { rawMouseSensitivity },
-            set: { newValue in
-                rawMouseSensitivity = newValue
-                saveInputSettingsIfPossible()
-            }
+    private var settingsBackground: some View {
+        LinearGradient(
+            colors: [
+                Color(nsColor: .windowBackgroundColor),
+                Color(nsColor: .underPageBackgroundColor)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
         )
+        .ignoresSafeArea()
     }
 
     private func loadState() {
         hostInput = coordinator.settings.host?.displayString ?? ""
-        loadWakeOnLANConfiguration()
-        clearHostFeedbackIfNeeded()
-        syncSelectedResolutionIfNeeded()
-        syncSelectedFPSIfNeeded()
+        syncVideoInputs()
         syncInputSettings()
-        updateInputFeedback()
+        loadWakeOnLANConfiguration()
     }
 
-    private func clearHostFeedbackIfNeeded() {
-        if coordinator.pairingState.isInProgress {
-            hostFeedbackMessage = nil
-            hostFeedbackIsError = false
-            return
-        }
+    private func syncVideoInputs() {
+        windowedWidthInput = String(coordinator.windowedStreamResolution.width)
+        windowedHeightInput = String(coordinator.windowedStreamResolution.height)
+        windowedFPSInput = String(coordinator.windowedStreamFPS)
 
-        if case .idle = coordinator.pairingState, coordinator.pairedHost?.host.displayString == trimmedHostInput {
-            hostFeedbackMessage = hasPairedHost ? "Sunshine host is paired and ready." : nil
-            hostFeedbackIsError = false
-        }
+        fullscreenWidthInput = String(coordinator.fullscreenStreamResolution.width)
+        fullscreenHeightInput = String(coordinator.fullscreenStreamResolution.height)
+        fullscreenFPSInput = String(coordinator.fullscreenStreamFPS)
+
+        alwaysUseNativeFullscreenVideoMode = coordinator.prefersNativeFullscreenVideoMode
+        alwaysUseNativeFullscreenRawMouseInput = coordinator.prefersNativeFullscreenRawMouseInput
+    }
+
+    private func syncInputSettings() {
+        rawMouseSensitivity = coordinator.settings.input.rawMouseSensitivity
     }
 
     private func loadWakeOnLANConfiguration() {
@@ -431,46 +359,42 @@ struct SettingsView: View {
         wakeOnLANFeedbackIsError = false
     }
 
-    private func syncSelectedResolutionIfNeeded() {
-        let defaultResolutionID = resolutionID(for: defaultResolution)
-        if supportedResolutions.contains(defaultResolution) {
-            selectedResolutionID = defaultResolutionID
-        } else {
-            selectedResolutionID = supportedResolutions.first.map(resolutionID(for:)) ?? ""
-        }
-    }
-
-    private func syncSelectedFPSIfNeeded() {
-        selectedFPS = coordinator.windowedStreamFPS
-    }
-
-    private func syncInputSettings() {
-        rawMouseSensitivity = coordinator.settings.input.rawMouseSensitivity
-    }
-
-    private func updateInputFeedback(message: String? = nil, isError: Bool = false) {
-        if let message {
-            inputFeedbackMessage = message
-            inputFeedbackIsError = isError
-            return
-        }
-
-        let effectiveScale = coordinator.settings.input.effectiveRawMouseScale
-        inputFeedbackMessage = "Effective relative scale: \(effectiveScale.formatted(.number.precision(.fractionLength(2))))x"
-        inputFeedbackIsError = false
-    }
-
-    private func saveWindowedVideoSettingsIfPossible() {
-        guard let resolution = supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID }) else {
-            return
-        }
-
+    private func saveWindowedVideoSettings() {
         do {
-            try coordinator.saveWindowedVideoSettings(resolution: resolution, fps: selectedFPS)
-            streamFeedbackMessage = "Windowed stream settings updated."
+            let resolution = try resolutionFromInputs(width: windowedWidthInput, height: windowedHeightInput)
+            let fps = try fpsFromInput(windowedFPSInput)
+            try coordinator.saveWindowedVideoSettings(resolution: resolution, fps: fps)
+            streamFeedbackMessage = "Windowed settings updated."
             streamFeedbackIsError = false
-            syncSelectedResolutionIfNeeded()
-            syncSelectedFPSIfNeeded()
+            syncVideoInputs()
+        } catch {
+            streamFeedbackMessage = error.localizedDescription
+            streamFeedbackIsError = true
+        }
+    }
+
+    private func saveFullscreenVideoSettings() {
+        do {
+            let resolution = try resolutionFromInputs(width: fullscreenWidthInput, height: fullscreenHeightInput)
+            let fps = try fpsFromInput(fullscreenFPSInput)
+            try coordinator.saveFullscreenVideoSettings(resolution: resolution, fps: fps)
+            streamFeedbackMessage = "Fullscreen settings updated."
+            streamFeedbackIsError = false
+            syncVideoInputs()
+        } catch {
+            streamFeedbackMessage = error.localizedDescription
+            streamFeedbackIsError = true
+        }
+    }
+
+    private func saveFullscreenPreferences() {
+        do {
+            try coordinator.saveFullscreenPresentationPreferences(
+                prefersNativeVideoMode: alwaysUseNativeFullscreenVideoMode,
+                prefersNativeRawMouseInput: alwaysUseNativeFullscreenRawMouseInput
+            )
+            streamFeedbackMessage = "Fullscreen preferences updated."
+            streamFeedbackIsError = false
         } catch {
             streamFeedbackMessage = error.localizedDescription
             streamFeedbackIsError = true
@@ -480,31 +404,34 @@ struct SettingsView: View {
     private func saveInputSettingsIfPossible() {
         do {
             try coordinator.saveInputSettings(rawMouseSensitivity: rawMouseSensitivity)
+            inputFeedbackMessage = nil
+            inputFeedbackIsError = false
             syncInputSettings()
-            updateInputFeedback()
         } catch {
-            updateInputFeedback(message: error.localizedDescription, isError: true)
+            inputFeedbackMessage = error.localizedDescription
+            inputFeedbackIsError = true
         }
     }
 
-    private func startPairing() {
+    private func prepareForNewHostPairing() {
         hostFeedbackMessage = nil
         hostFeedbackIsError = false
-        coordinator.startPairing(hostInput: hostInput)
-    }
+        showPairingFlow = true
+        hostInput = ""
 
-    private func resetPairing() {
-        hostFeedbackMessage = nil
-        hostFeedbackIsError = false
+        guard currentHostDisplayString != nil else {
+            loadWakeOnLANConfiguration()
+            return
+        }
+
         resetInProgress = true
 
         Task {
             do {
                 try await coordinator.resetPairing()
                 await MainActor.run {
-                    hostInput = ""
                     loadWakeOnLANConfiguration()
-                    hostFeedbackMessage = "Sunshine host configuration cleared."
+                    hostFeedbackMessage = nil
                     hostFeedbackIsError = false
                     resetInProgress = false
                 }
@@ -518,11 +445,17 @@ struct SettingsView: View {
         }
     }
 
+    private func startPairing() {
+        hostFeedbackMessage = nil
+        hostFeedbackIsError = false
+        coordinator.startPairing(hostInput: hostInput)
+    }
+
     private func saveWakeOnLANConfiguration() {
         do {
             try coordinator.saveWakeOnLANConfiguration(macAddress: macAddress, broadcastAddress: broadcastAddress)
             loadWakeOnLANConfiguration()
-            wakeOnLANFeedbackMessage = "Wake-on-LAN will be sent when GameStream launches."
+            wakeOnLANFeedbackMessage = "Wake-on-LAN settings updated."
             wakeOnLANFeedbackIsError = false
         } catch {
             wakeOnLANFeedbackMessage = error.localizedDescription
@@ -542,57 +475,32 @@ struct SettingsView: View {
         }
     }
 
-    private func addSupportedResolution() {
-        guard let resolution = candidateResolution else {
-            streamFeedbackMessage = "Enter a valid resolution using positive even numbers."
-            streamFeedbackIsError = true
-            return
+    private func resolutionFromInputs(
+        width: String,
+        height: String
+    ) throws -> StreamConfiguration.Video.Resolution {
+        guard let width = Int(width.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let height = Int(height.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
+            throw AppSettingsError.unsupportedResolution
         }
 
-        var updatedResolutions = supportedResolutions
-        if updatedResolutions.contains(resolution) == false {
-            updatedResolutions.append(resolution)
+        let resolution = StreamConfiguration.Video.Resolution(width: width, height: height)
+        guard AppSettings.Video.isSupportedResolution(resolution) else {
+            throw AppSettingsError.unsupportedResolution
         }
 
-        saveSupportedResolutions(updatedResolutions, successMessage: "Resolution list updated.")
-        selectedResolutionID = resolutionID(for: resolution)
-        resolutionWidthInput = ""
-        resolutionHeightInput = ""
-        saveWindowedVideoSettingsIfPossible()
+        return resolution
     }
 
-    private func removeSelectedResolution() {
-        guard let selectedSupportedResolution else {
-            return
+    private func fpsFromInput(_ value: String) throws -> Int {
+        guard let fps = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              AppSettings.Video.isSupportedFPS(fps)
+        else {
+            throw AppSettingsError.unsupportedFrameRate
         }
 
-        let updatedResolutions = supportedResolutions.filter { $0 != selectedSupportedResolution }
-        saveSupportedResolutions(updatedResolutions, successMessage: "Resolution list updated.")
-        syncSelectedResolutionIfNeeded()
-        saveWindowedVideoSettingsIfPossible()
-    }
-
-    private func resetSupportedResolutions() {
-        saveSupportedResolutions(
-            AppSettings.Video.defaultSupportedResolutions,
-            successMessage: "Default resolutions restored."
-        )
-        syncSelectedResolutionIfNeeded()
-        saveWindowedVideoSettingsIfPossible()
-    }
-
-    private func saveSupportedResolutions(
-        _ resolutions: [StreamConfiguration.Video.Resolution],
-        successMessage: String
-    ) {
-        do {
-            try coordinator.saveSupportedResolutions(resolutions)
-            streamFeedbackMessage = successMessage
-            streamFeedbackIsError = false
-        } catch {
-            streamFeedbackMessage = error.localizedDescription
-            streamFeedbackIsError = true
-        }
+        return fps
     }
 
     private func preferenceSection<Content: View>(
@@ -605,33 +513,84 @@ struct SettingsView: View {
                 .font(.title3.weight(.semibold))
 
             Text(description)
-                .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            content()
+            settingsCard(content: content)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12, content: content)
-            .padding(16)
+            .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(
+                Color(nsColor: .controlBackgroundColor).opacity(0.72),
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12))
+            }
     }
 
     private func labeledRow<Content: View>(
         _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        HStack(alignment: .center, spacing: 16) {
             Text(title)
                 .frame(width: 110, alignment: .leading)
 
             content()
 
             Spacer(minLength: 0)
+        }
+    }
+
+    private func videoModeEditor(
+        title: String,
+        width: Binding<String>,
+        height: Binding<String>,
+        fps: Binding<String>,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+
+            HStack(alignment: .top, spacing: 12) {
+                settingField(title: "Width", placeholder: "1920", text: width)
+                settingField(title: "Height", placeholder: "1080", text: height)
+                settingField(title: "FPS", placeholder: "60", text: fps)
+
+                VStack {
+                    Spacer(minLength: 0)
+
+                    Button("Apply", action: action)
+                        .buttonStyle(.bordered)
+                        .disabled(isDisabled)
+                }
+            }
+            .disabled(isDisabled)
+        }
+    }
+
+    private func settingField(
+        title: String,
+        placeholder: String,
+        text: Binding<String>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
         }
     }
 
@@ -642,14 +601,6 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(isError ? Color(nsColor: .systemRed) : .secondary)
         }
-    }
-
-    private func resolutionLabel(_ resolution: StreamConfiguration.Video.Resolution) -> String {
-        "\(resolution.width) x \(resolution.height)"
-    }
-
-    private func resolutionID(for resolution: StreamConfiguration.Video.Resolution) -> String {
-        "\(resolution.width)x\(resolution.height)"
     }
 }
 

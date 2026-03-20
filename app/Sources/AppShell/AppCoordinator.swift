@@ -359,6 +359,22 @@ final class AppCoordinator: ObservableObject {
         settings.video.fps
     }
 
+    var fullscreenStreamResolution: StreamConfiguration.Video.Resolution {
+        settings.video.fullscreenResolution
+    }
+
+    var fullscreenStreamFPS: Int {
+        settings.video.fullscreenFPS
+    }
+
+    var prefersNativeFullscreenVideoMode: Bool {
+        settings.video.prefersNativeFullscreenVideoMode
+    }
+
+    var prefersNativeFullscreenRawMouseInput: Bool {
+        settings.video.prefersNativeFullscreenRawMouseInput
+    }
+
     var currentStreamResolution: StreamConfiguration.Video.Resolution? {
         if let activeSessionController {
             return activeSessionController.configuration.video.resolution
@@ -489,6 +505,36 @@ final class AppCoordinator: ObservableObject {
         } catch {
             libraryActionError = error.localizedDescription
         }
+    }
+
+    func saveFullscreenVideoSettings(
+        resolution: StreamConfiguration.Video.Resolution,
+        fps: Int
+    ) throws {
+        guard AppSettings.Video.isSupportedResolution(resolution) else {
+            throw AppSettingsError.unsupportedResolution
+        }
+
+        guard AppSettings.Video.isSupportedFPS(fps) else {
+            throw AppSettingsError.unsupportedFrameRate
+        }
+
+        var updatedSettings = settings
+        updatedSettings.video.fullscreenResolution = resolution
+        updatedSettings.video.fullscreenFPS = fps
+
+        try persistSettings(updatedSettings)
+    }
+
+    func saveFullscreenPresentationPreferences(
+        prefersNativeVideoMode: Bool,
+        prefersNativeRawMouseInput: Bool
+    ) throws {
+        var updatedSettings = settings
+        updatedSettings.video.prefersNativeFullscreenVideoMode = prefersNativeVideoMode
+        updatedSettings.video.prefersNativeFullscreenRawMouseInput = prefersNativeRawMouseInput
+
+        try persistSettings(updatedSettings)
     }
 
     private func refreshLibrary(force: Bool, showLoadingIndicator: Bool) {
@@ -814,7 +860,8 @@ final class AppCoordinator: ObservableObject {
                 await MainActor.run {
                     self.startSession(
                         configuration: configuration,
-                        launchesFullscreen: streamMode == .fullscreen
+                        launchesFullscreen: streamMode == .fullscreen,
+                        prefersNativeRawMouseInput: self.settings.video.prefersNativeFullscreenRawMouseInput
                     )
                 }
             } catch {
@@ -1047,8 +1094,9 @@ final class AppCoordinator: ObservableObject {
 
     private func launchVideoMode(for mode: StreamMode) -> (resolution: StreamConfiguration.Video.Resolution, fps: Int) {
         if mode == .fullscreen,
-           let mainScreen = NSScreen.main
+            let mainScreen = NSScreen.main
         {
+            if settings.video.prefersNativeFullscreenVideoMode {
             let frame = mainScreen.frame
             let scale = max(mainScreen.backingScaleFactor, 1.0)
             return (
@@ -1057,6 +1105,12 @@ final class AppCoordinator: ObservableObject {
                     height: Int(frame.height * scale)
                 ),
                 fps: nativeRefreshRate(for: mainScreen) ?? windowedStreamFPS
+            )
+            }
+
+            return (
+                resolution: fullscreenStreamResolution,
+                fps: fullscreenStreamFPS
             )
         }
 
@@ -1150,7 +1204,8 @@ final class AppCoordinator: ObservableObject {
                 await MainActor.run {
                     self.startSession(
                         configuration: configuration,
-                        launchesFullscreen: self.streamMode == .fullscreen
+                        launchesFullscreen: self.streamMode == .fullscreen,
+                        prefersNativeRawMouseInput: self.settings.video.prefersNativeFullscreenRawMouseInput
                     )
                 }
             } catch {
@@ -1164,7 +1219,8 @@ final class AppCoordinator: ObservableObject {
 
     private func startSession(
         configuration: StreamConfiguration,
-        launchesFullscreen: Bool
+        launchesFullscreen: Bool,
+        prefersNativeRawMouseInput: Bool
     ) {
         launchInProgress = true
 
@@ -1177,12 +1233,13 @@ final class AppCoordinator: ObservableObject {
         let errorWindowController = ErrorWindowController(sessionController: sessionController)
         let streamWindowController = StreamWindowController(
             sessionController: sessionController,
-            launchesFullscreen: launchesFullscreen
+            launchesFullscreen: launchesFullscreen,
+            prefersNativeRawMouseInput: prefersNativeRawMouseInput
         )
         sessionController.onInputResetRequested = { [weak streamWindowController] in
             streamWindowController?.resetLocalInputState()
         }
-        errorWindowController.onVisibilityChange = { [weak self] isVisible in
+        errorWindowController.onVisibilityChange = { [weak self] (isVisible: Bool) in
             guard let self else {
                 return
             }
@@ -1193,7 +1250,7 @@ final class AppCoordinator: ObservableObject {
                 self.setDockVisibility(false)
             }
         }
-        streamWindowController.onVisibilityChange = { [weak self, weak streamWindowController] isVisible in
+        streamWindowController.onVisibilityChange = { [weak self, weak streamWindowController] (isVisible: Bool) in
             guard let self else {
                 return
             }

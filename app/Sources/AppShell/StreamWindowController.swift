@@ -21,18 +21,24 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
 
     private let streamViewController: StreamViewController
     private let launchesFullscreen: Bool
+    private let prefersNativeRawMouseInput: Bool
     private var rawMouseCaptureEnabled = false
     private var rawMouseCursorHidden = false
     private var localCommandSuppressionActive = false
     private var isProgrammaticHideInProgress = false
     private var allowsWindowClosing = false
 
-    init(sessionController: SessionController, launchesFullscreen: Bool = false) {
+    init(
+        sessionController: SessionController,
+        launchesFullscreen: Bool = false,
+        prefersNativeRawMouseInput: Bool = true
+    ) {
         self.sessionController = sessionController
         self.launchesFullscreen = launchesFullscreen
+        self.prefersNativeRawMouseInput = prefersNativeRawMouseInput
         self.streamViewController = StreamViewController(
             sessionController: sessionController,
-            mouseMode: launchesFullscreen ? .raw : .absolute
+            mouseMode: launchesFullscreen && prefersNativeRawMouseInput ? .raw : .absolute
         )
 
         let contentRect = NSRect(origin: .zero, size: Self.streamContentSize(for: sessionController, screen: NSScreen.main))

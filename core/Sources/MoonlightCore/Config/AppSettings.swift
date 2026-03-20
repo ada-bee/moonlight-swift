@@ -38,6 +38,10 @@ public struct AppSettings: Codable, Sendable {
     public struct Video: Codable, Sendable {
         public var resolution: StreamConfiguration.Video.Resolution
         public var fps: Int
+        public var fullscreenResolution: StreamConfiguration.Video.Resolution
+        public var fullscreenFPS: Int
+        public var prefersNativeFullscreenVideoMode: Bool
+        public var prefersNativeFullscreenRawMouseInput: Bool
         public var bitrateKbps: Int
         public var packetSize: Int
         public var supportedResolutions: [StreamConfiguration.Video.Resolution]
@@ -45,12 +49,20 @@ public struct AppSettings: Codable, Sendable {
         public init(
             resolution: StreamConfiguration.Video.Resolution,
             fps: Int,
+            fullscreenResolution: StreamConfiguration.Video.Resolution,
+            fullscreenFPS: Int,
+            prefersNativeFullscreenVideoMode: Bool,
+            prefersNativeFullscreenRawMouseInput: Bool,
             bitrateKbps: Int,
             packetSize: Int,
             supportedResolutions: [StreamConfiguration.Video.Resolution]
         ) {
             self.resolution = resolution
-            self.fps = fps
+            self.fps = Self.normalizedFPS(fps)
+            self.fullscreenResolution = fullscreenResolution
+            self.fullscreenFPS = Self.normalizedFPS(fullscreenFPS)
+            self.prefersNativeFullscreenVideoMode = prefersNativeFullscreenVideoMode
+            self.prefersNativeFullscreenRawMouseInput = prefersNativeFullscreenRawMouseInput
             self.bitrateKbps = bitrateKbps
             self.packetSize = packetSize
             self.supportedResolutions = Self.normalizedSupportedResolutions(supportedResolutions)
@@ -61,6 +73,10 @@ public struct AppSettings: Codable, Sendable {
             case width
             case height
             case fps
+            case fullscreenResolution
+            case fullscreenFPS
+            case prefersNativeFullscreenVideoMode
+            case prefersNativeFullscreenRawMouseInput
             case bitrateKbps
             case packetSize
             case supportedResolutions
@@ -76,7 +92,16 @@ public struct AppSettings: Codable, Sendable {
                     height: try container.decodeIfPresent(Int.self, forKey: .height) ?? StreamConfiguration.fallback.video.resolution.height
                 )
             }
-            fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? StreamConfiguration.fallback.video.fps
+            fps = Self.normalizedFPS(
+                try container.decodeIfPresent(Int.self, forKey: .fps) ?? StreamConfiguration.fallback.video.fps
+            )
+            fullscreenResolution = try container.decodeIfPresent(StreamConfiguration.Video.Resolution.self, forKey: .fullscreenResolution)
+                ?? resolution
+            fullscreenFPS = Self.normalizedFPS(
+                try container.decodeIfPresent(Int.self, forKey: .fullscreenFPS) ?? fps
+            )
+            prefersNativeFullscreenVideoMode = try container.decodeIfPresent(Bool.self, forKey: .prefersNativeFullscreenVideoMode) ?? true
+            prefersNativeFullscreenRawMouseInput = try container.decodeIfPresent(Bool.self, forKey: .prefersNativeFullscreenRawMouseInput) ?? true
             bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? StreamConfiguration.fallback.video.bitrateKbps
             packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? StreamConfiguration.fallback.video.packetSize
 
@@ -89,6 +114,10 @@ public struct AppSettings: Codable, Sendable {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(resolution, forKey: .resolution)
             try container.encode(fps, forKey: .fps)
+            try container.encode(fullscreenResolution, forKey: .fullscreenResolution)
+            try container.encode(fullscreenFPS, forKey: .fullscreenFPS)
+            try container.encode(prefersNativeFullscreenVideoMode, forKey: .prefersNativeFullscreenVideoMode)
+            try container.encode(prefersNativeFullscreenRawMouseInput, forKey: .prefersNativeFullscreenRawMouseInput)
             try container.encode(bitrateKbps, forKey: .bitrateKbps)
             try container.encode(packetSize, forKey: .packetSize)
             try container.encode(supportedResolutions, forKey: .supportedResolutions)
@@ -119,6 +148,14 @@ public struct AppSettings: Codable, Sendable {
                 && resolution.height > 0
                 && resolution.width.isMultiple(of: 2)
                 && resolution.height.isMultiple(of: 2)
+        }
+
+        public static func isSupportedFPS(_ fps: Int) -> Bool {
+            fps > 0
+        }
+
+        private static func normalizedFPS(_ fps: Int) -> Int {
+            isSupportedFPS(fps) ? fps : StreamConfiguration.fallback.video.fps
         }
 
         private static func sortsBefore(
@@ -196,6 +233,10 @@ public extension AppSettings {
     static let initialWindowedVideo = Video(
         resolution: StreamConfiguration.fallback.video.resolution,
         fps: StreamConfiguration.fallback.video.fps,
+        fullscreenResolution: StreamConfiguration.fallback.video.resolution,
+        fullscreenFPS: StreamConfiguration.fallback.video.fps,
+        prefersNativeFullscreenVideoMode: true,
+        prefersNativeFullscreenRawMouseInput: true,
         bitrateKbps: StreamConfiguration.fallback.video.bitrateKbps,
         packetSize: StreamConfiguration.fallback.video.packetSize,
         supportedResolutions: AppSettings.Video.defaultSupportedResolutions
@@ -243,11 +284,17 @@ public enum StreamMode: String, Codable, Sendable, Hashable {
 
 public enum AppSettingsError: Error, LocalizedError {
     case missingHost
+    case unsupportedResolution
+    case unsupportedFrameRate
 
     public var errorDescription: String? {
         switch self {
         case .missingHost:
             return "No host is configured."
+        case .unsupportedResolution:
+            return "Resolution must use positive even numbers."
+        case .unsupportedFrameRate:
+            return "Frame rate must be a positive integer."
         }
     }
 }
