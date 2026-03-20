@@ -10,8 +10,6 @@
     <string>GameStream</string>
     <key>CFBundleIconFile</key>
     <string>GameStream</string>
-    <key>CFBundleIconName</key>
-    <string>GameStream</string>
     <key>CFBundleIdentifier</key>
     <string>xyz.brbc.moonlightswift</string>
     <key>CFBundleInfoDictionaryVersion</key>

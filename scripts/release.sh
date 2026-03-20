@@ -22,8 +22,6 @@ DMG_STAGE_DIR="${STAGE_DIR}/dmg"
 ZIP_PATH="${DIST_DIR}/${APP_NAME}-${VERSION}.zip"
 DMG_PATH="${DIST_DIR}/${APP_NAME}-${VERSION}.dmg"
 SHA_PATH="${DIST_DIR}/${APP_NAME}-${VERSION}.sha256"
-ICON_SOURCE_DIR="${ROOT}/app/Sources/AppShell/Resources/${APP_NAME}.icon"
-ICON_BUILD_DIR="${STAGE_DIR}/icon"
 
 SWIFT_BIN="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
@@ -82,13 +80,7 @@ BIN_DIR="${ROOT}/.build/arm64-apple-macosx/release"
 echo "==> Assembling app bundle"
 cp "${BIN_DIR}/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
 cp "${ROOT}/app/Sources/AppShell/Resources/Info.plist" "${CONTENTS_DIR}/Info.plist"
-
-echo "==> Compiling app icon assets"
-rm -rf "${ICON_BUILD_DIR}"
-mkdir -p "${ICON_BUILD_DIR}"
-xcrun actool "${ICON_SOURCE_DIR}" --compile "${ICON_BUILD_DIR}" --output-format human-readable-text --notices --warnings --errors --output-partial-info-plist "${ICON_BUILD_DIR}/partial.plist" --app-icon "${APP_NAME}" --target-device mac --minimum-deployment-target 26.0 --platform macosx --standalone-icon-behavior all
-cp "${ICON_BUILD_DIR}/Assets.car" "${RESOURCES_DIR}/Assets.car"
-cp "${ICON_BUILD_DIR}/${APP_NAME}.icns" "${RESOURCES_DIR}/${APP_NAME}.icns"
+cp "${ROOT}/app/Sources/AppShell/Resources/${APP_NAME}.icns" "${RESOURCES_DIR}/${APP_NAME}.icns"
 
 cp -R "${BIN_DIR}/${PRODUCT_NAME}_Moonlight.bundle" "${RESOURCES_DIR}/${PRODUCT_NAME}_Moonlight.bundle"
 cp -R "${BIN_DIR}/${PRODUCT_NAME}_MoonlightCore.bundle" "${RESOURCES_DIR}/${PRODUCT_NAME}_MoonlightCore.bundle"
