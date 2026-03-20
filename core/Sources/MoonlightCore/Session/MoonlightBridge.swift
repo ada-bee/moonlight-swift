@@ -46,9 +46,6 @@ public final class MoonlightBridge {
     public init(configuration: MVPConfiguration, renderer: VideoFrameRenderer) {
         self.configuration = configuration
         self.renderer = renderer
-        self.audioRenderer.onError = { message in
-            print("Moonlight audio renderer error: \(message)")
-        }
 
         MoonlightBridgeSetActiveContext(bridgeContextPointer)
         MoonlightBridgeInstallCallbacks(&connectionCallbacks, &videoCallbacks, &audioCallbacks)

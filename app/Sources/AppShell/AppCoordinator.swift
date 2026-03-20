@@ -133,7 +133,6 @@ final class AppCoordinator: ObservableObject {
                         host: authority,
                         deviceName: "GameStream",
                         pin: pin,
-                        skipVerifyCheck: true,
                         progress: { [weak self] status in
                             await MainActor.run {
                                 guard let self else {

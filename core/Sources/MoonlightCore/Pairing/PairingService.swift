@@ -12,7 +12,6 @@ public final class PairingService {
         deviceName: String,
         pin: String,
         requestTimeout: TimeInterval = 300,
-        skipVerifyCheck: Bool = false,
         progress: (@Sendable (String) async -> Void)? = nil
     ) async throws -> PairingSessionResult {
         try Task.checkCancellation()
@@ -146,47 +145,10 @@ public final class PairingService {
             pairedAt: Date()
         )
 
-        let verificationSummary: PairingVerificationSummary?
-        if skipVerifyCheck {
-            verificationSummary = nil
-        } else {
-            let paths = try temporaryIdentityFiles(for: identity)
-            defer { cleanupTemporaryFiles(paths.directoryURL) }
-
-            do {
-                try Task.checkCancellation()
-                await progress?("Running HTTPS verification")
-                let verification = try await httpClient.getHTTPSXML(
-                    host: host,
-                    httpsPort: httpsPort,
-                    path: "/serverinfo",
-                    queryItems: [
-                        URLQueryItem(name: "uniqueid", value: identity.uniqueID),
-                        URLQueryItem(name: "uuid", value: try PairingCrypto.randomUUIDHex())
-                    ],
-                    identity: HTTPSClientIdentity(
-                        certificateURL: paths.certificateURL,
-                        privateKeyURL: paths.privateKeyURL,
-                        pinnedServerCertificatePEM: serverCertificatePEM
-                    ),
-                    timeout: 15
-                )
-                try verification.requireOK(action: "https serverinfo verification")
-                verificationSummary = PairingVerificationSummary(
-                    pairStatus: verification.value(for: "PairStatus"),
-                    currentGame: verification.value(for: "currentgame"),
-                    state: verification.value(for: "state")
-                )
-            } catch {
-                verificationSummary = nil
-            }
-        }
-
         return PairingSessionResult(
             identity: identity,
             serverCertificatePEM: serverCertificatePEM,
-            record: record,
-            verificationSummary: verificationSummary
+            record: record
         )
     }
 
@@ -201,19 +163,6 @@ public final class PairingService {
         return response
     }
 
-    private func temporaryIdentityFiles(for identity: PairingIdentity) throws -> (directoryURL: URL, certificateURL: URL, privateKeyURL: URL) {
-        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        let certificateURL = directoryURL.appendingPathComponent("client-cert.pem")
-        let privateKeyURL = directoryURL.appendingPathComponent("client-key.pem")
-        try identity.certificatePEM.write(to: certificateURL, options: .atomic)
-        try identity.privateKeyPEM.write(to: privateKeyURL, options: .atomic)
-        return (directoryURL, certificateURL, privateKeyURL)
-    }
-
-    private func cleanupTemporaryFiles(_ directoryURL: URL) {
-        try? FileManager.default.removeItem(at: directoryURL)
-    }
 }
 
 extension PairingService: @unchecked Sendable {}

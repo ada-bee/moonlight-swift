@@ -102,34 +102,19 @@ public struct PairedHostRecord: Codable, Sendable {
     }
 }
 
-public struct PairingVerificationSummary: Codable, Sendable {
-    public var pairStatus: String?
-    public var currentGame: String?
-    public var state: String?
-
-    public init(pairStatus: String?, currentGame: String?, state: String?) {
-        self.pairStatus = pairStatus
-        self.currentGame = currentGame
-        self.state = state
-    }
-}
-
 public struct PairingSessionResult: Sendable {
     public var identity: PairingIdentity
     public var serverCertificatePEM: Data
     public var record: PairedHostRecord
-    public var verificationSummary: PairingVerificationSummary?
 
     public init(
         identity: PairingIdentity,
         serverCertificatePEM: Data,
-        record: PairedHostRecord,
-        verificationSummary: PairingVerificationSummary?
+        record: PairedHostRecord
     ) {
         self.identity = identity
         self.serverCertificatePEM = serverCertificatePEM
         self.record = record
-        self.verificationSummary = verificationSummary
     }
 }
 

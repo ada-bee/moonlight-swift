@@ -14,7 +14,7 @@ struct SettingsView: View {
     @State private var inputFeedbackMessage: String?
     @State private var inputFeedbackIsError = false
     @State private var selectedResolutionID = ""
-    @State private var selectedFPS = 120
+    @State private var selectedFPS = 60
     @State private var resolutionWidthInput = ""
     @State private var resolutionHeightInput = ""
     @State private var rawMouseSensitivity = AppSettings.Input.defaultRawMouseSensitivity

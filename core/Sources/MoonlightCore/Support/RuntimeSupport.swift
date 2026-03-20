@@ -38,7 +38,7 @@ public enum RuntimeSupport {
         patchVersion: 0
     )
 
-    public static let av1HardwareDecodeRequirementMessage = "M3 or newer is required."
+    public static let av1HardwareDecodeRequirementMessage = "AV1 hardware decode support is required."
 
     public static func currentStatus(processInfo: ProcessInfo = .processInfo) -> Status {
         guard processInfo.isOperatingSystemAtLeast(minimumOperatingSystemVersion) else {

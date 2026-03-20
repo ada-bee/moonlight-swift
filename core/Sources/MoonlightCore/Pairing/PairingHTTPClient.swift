@@ -15,6 +15,7 @@ public struct HTTPSClientIdentity: Sendable {
 
 public final class PairingHTTPClient {
     private let session: URLSession
+    private let identityMaterialCache = HTTPSIdentityMaterialCache()
 
     public init(session: URLSession = .shared) {
         self.session = session
@@ -69,8 +70,7 @@ public final class PairingHTTPClient {
         timeout: TimeInterval
     ) async throws -> Data {
         let url = try makeURL(scheme: "https", host: host.address, port: httpsPort, path: path, queryItems: queryItems)
-        let certificatePEM = try Data(contentsOf: identity.certificateURL)
-        let privateKeyPEM = try Data(contentsOf: identity.privateKeyURL)
+        let identityMaterial = try await identityMaterialCache.material(for: identity)
         let pathAndQuery = url.path + (URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery.map { "?\($0)" } ?? "")
 
         return try await Task.detached(priority: .userInitiated) {
@@ -78,8 +78,8 @@ public final class PairingHTTPClient {
                 host: host.address,
                 port: httpsPort,
                 pathAndQuery: pathAndQuery,
-                certificatePEM: certificatePEM,
-                privateKeyPEM: privateKeyPEM,
+                certificatePEM: identityMaterial.certificatePEM,
+                privateKeyPEM: identityMaterial.privateKeyPEM,
                 pinnedServerCertificatePEM: identity.pinnedServerCertificatePEM,
                 action: path,
                 timeout: timeout
@@ -183,6 +183,67 @@ public final class PairingHTTPClient {
 }
 
 extension PairingHTTPClient: @unchecked Sendable {}
+
+private actor HTTPSIdentityMaterialCache {
+    private struct CacheKey: Hashable, Sendable {
+        let certificateURL: URL
+        let privateKeyURL: URL
+    }
+
+    private struct CachedFileData: Sendable {
+        let modificationDate: Date?
+        let fileSize: Int?
+        let data: Data
+    }
+
+    private struct CachedIdentityMaterial: Sendable {
+        let certificate: CachedFileData
+        let privateKey: CachedFileData
+
+        var material: HTTPSIdentityMaterial {
+            HTTPSIdentityMaterial(
+                certificatePEM: certificate.data,
+                privateKeyPEM: privateKey.data
+            )
+        }
+    }
+
+    private var cache: [CacheKey: CachedIdentityMaterial] = [:]
+
+    func material(for identity: HTTPSClientIdentity) throws -> HTTPSIdentityMaterial {
+        let key = CacheKey(certificateURL: identity.certificateURL, privateKeyURL: identity.privateKeyURL)
+        let cachedMaterial = cache[key]
+
+        let certificate = try loadFileData(at: identity.certificateURL, cached: cachedMaterial?.certificate)
+        let privateKey = try loadFileData(at: identity.privateKeyURL, cached: cachedMaterial?.privateKey)
+        let refreshedMaterial = CachedIdentityMaterial(certificate: certificate, privateKey: privateKey)
+        cache[key] = refreshedMaterial
+        return refreshedMaterial.material
+    }
+
+    private func loadFileData(at url: URL, cached: CachedFileData?) throws -> CachedFileData {
+        let resourceValues = try url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modificationDate = resourceValues.contentModificationDate
+        let fileSize = resourceValues.fileSize
+
+        if let cached,
+           cached.modificationDate == modificationDate,
+           cached.fileSize == fileSize {
+            return cached
+        }
+
+        return CachedFileData(
+            modificationDate: modificationDate,
+            fileSize: fileSize,
+            data: try Data(contentsOf: url)
+        )
+    }
+}
+
+private struct HTTPSIdentityMaterial: Sendable {
+    let certificatePEM: Data
+    let privateKeyPEM: Data
+}
 
 private extension Optional where Wrapped == Data {
     func withOptionalUnsafeBytes<T>(_ body: (UnsafePointer<UInt8>?, Int) throws -> T) rethrows -> T {

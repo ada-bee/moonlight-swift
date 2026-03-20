@@ -84,8 +84,8 @@ public struct MVPConfiguration: Sendable, Codable {
 
             public init(from decoder: Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                width = try container.decodeIfPresent(Int.self, forKey: .width) ?? 2560
-                height = try container.decodeIfPresent(Int.self, forKey: .height) ?? 1440
+                width = try container.decodeIfPresent(Int.self, forKey: .width) ?? 1920
+                height = try container.decodeIfPresent(Int.self, forKey: .height) ?? 1080
             }
         }
 
@@ -115,9 +115,9 @@ public struct MVPConfiguration: Sendable, Codable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            resolution = try container.decodeIfPresent(Resolution.self, forKey: .resolution) ?? .init(width: 2560, height: 1440)
-            fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? 120
-            bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? 80_000
+            resolution = try container.decodeIfPresent(Resolution.self, forKey: .resolution) ?? .init(width: 1920, height: 1080)
+            fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? 60
+            bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? 30_000
             packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? 1392
         }
     }
@@ -150,9 +150,9 @@ public extension MVPConfiguration {
         session: .init(autoConnectOnLaunch: true, requestResume: false),
         input: .init(rawMouseSensitivity: 1.0),
         video: .init(
-            resolution: .init(width: 2560, height: 1440),
-            fps: 120,
-            bitrateKbps: 80000,
+            resolution: .init(width: 1920, height: 1080),
+            fps: 60,
+            bitrateKbps: 30000,
             packetSize: 1392
         )
     )
