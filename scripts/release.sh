@@ -26,8 +26,8 @@ SHA_PATH="${DIST_DIR}/${APP_NAME}-${VERSION}.sha256"
 SWIFT_BIN="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 SDKROOT="${SDKROOT:-/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk}"
-OPENSSL_INCLUDE_DIR="${OPENSSL_INCLUDE_DIR:-$(nix eval --raw nixpkgs#openssl.dev.outPath)/include}"
-OPENSSL_LIB_DIR="${OPENSSL_LIB_DIR:-$(nix eval --raw nixpkgs#openssl.out.outPath)/lib}"
+OPENSSL_INCLUDE_DIR="${OPENSSL_INCLUDE_DIR:-}"
+OPENSSL_LIB_DIR="${OPENSSL_LIB_DIR:-}"
 
 discover_identity() {
   local line
@@ -49,6 +49,22 @@ CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-$(discover_identity)}"
 
 if [[ -z "${CODESIGN_IDENTITY}" ]]; then
   echo "Unable to find a Developer ID Application identity for team ${TEAM_ID}." >&2
+  exit 1
+fi
+
+if [[ -z "${OPENSSL_INCLUDE_DIR}" || -z "${OPENSSL_LIB_DIR}" ]]; then
+  echo "OPENSSL_INCLUDE_DIR and OPENSSL_LIB_DIR must be set in your environment before running this script." >&2
+  echo "Use a local ignored .envrc or shell exports that point at your OpenSSL installation." >&2
+  exit 1
+fi
+
+if [[ ! -f "${OPENSSL_INCLUDE_DIR}/openssl/ssl.h" ]]; then
+  echo "OpenSSL headers are missing at ${OPENSSL_INCLUDE_DIR}." >&2
+  exit 1
+fi
+
+if [[ ! -f "${OPENSSL_LIB_DIR}/libssl.3.dylib" || ! -f "${OPENSSL_LIB_DIR}/libcrypto.3.dylib" ]]; then
+  echo "OpenSSL dylibs are missing at ${OPENSSL_LIB_DIR}." >&2
   exit 1
 fi
 
