@@ -220,7 +220,7 @@ final class StreamInputView: NSView {
         }
     }
 
-    func updateInputConfiguration(_ input: MVPConfiguration.Input) {
+    func updateInputConfiguration(_ input: StreamConfiguration.Input) {
         rawMouseScale = input.effectiveRawMouseScale
         rawMouseDispatchState.update(rawMouseScale: rawMouseScale)
         rawMouseDispatchState.reset()

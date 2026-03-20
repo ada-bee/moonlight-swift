@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MVPConfiguration: Sendable, Codable {
+public struct StreamConfiguration: Sendable, Codable {
     public struct Input: Sendable, Codable {
         public var rawMouseSensitivity: Double
 
@@ -140,8 +140,8 @@ public struct MVPConfiguration: Sendable, Codable {
     }
 }
 
-public extension MVPConfiguration {
-    static let fallback = MVPConfiguration(
+public extension StreamConfiguration {
+    static let fallback = StreamConfiguration(
         host: .init(
             address: "192.168.1.10",
             port: 47989,

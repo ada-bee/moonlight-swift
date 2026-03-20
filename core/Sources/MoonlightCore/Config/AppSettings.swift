@@ -36,18 +36,18 @@ public struct AppSettings: Codable, Sendable {
     }
 
     public struct Video: Codable, Sendable {
-        public var resolution: MVPConfiguration.Video.Resolution
+        public var resolution: StreamConfiguration.Video.Resolution
         public var fps: Int
         public var bitrateKbps: Int
         public var packetSize: Int
-        public var supportedResolutions: [MVPConfiguration.Video.Resolution]
+        public var supportedResolutions: [StreamConfiguration.Video.Resolution]
 
         public init(
-            resolution: MVPConfiguration.Video.Resolution,
+            resolution: StreamConfiguration.Video.Resolution,
             fps: Int,
             bitrateKbps: Int,
             packetSize: Int,
-            supportedResolutions: [MVPConfiguration.Video.Resolution]
+            supportedResolutions: [StreamConfiguration.Video.Resolution]
         ) {
             self.resolution = resolution
             self.fps = fps
@@ -68,19 +68,19 @@ public struct AppSettings: Codable, Sendable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            if let decodedResolution = try container.decodeIfPresent(MVPConfiguration.Video.Resolution.self, forKey: .resolution) {
+            if let decodedResolution = try container.decodeIfPresent(StreamConfiguration.Video.Resolution.self, forKey: .resolution) {
                 resolution = decodedResolution
             } else {
-                resolution = MVPConfiguration.Video.Resolution(
-                    width: try container.decodeIfPresent(Int.self, forKey: .width) ?? MVPConfiguration.fallback.video.resolution.width,
-                    height: try container.decodeIfPresent(Int.self, forKey: .height) ?? MVPConfiguration.fallback.video.resolution.height
+                resolution = StreamConfiguration.Video.Resolution(
+                    width: try container.decodeIfPresent(Int.self, forKey: .width) ?? StreamConfiguration.fallback.video.resolution.width,
+                    height: try container.decodeIfPresent(Int.self, forKey: .height) ?? StreamConfiguration.fallback.video.resolution.height
                 )
             }
-            fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? MVPConfiguration.fallback.video.fps
-            bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? MVPConfiguration.fallback.video.bitrateKbps
-            packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? MVPConfiguration.fallback.video.packetSize
+            fps = try container.decodeIfPresent(Int.self, forKey: .fps) ?? StreamConfiguration.fallback.video.fps
+            bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? StreamConfiguration.fallback.video.bitrateKbps
+            packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? StreamConfiguration.fallback.video.packetSize
 
-            let decodedSupportedResolutions = try container.decodeIfPresent([MVPConfiguration.Video.Resolution].self, forKey: .supportedResolutions)
+            let decodedSupportedResolutions = try container.decodeIfPresent([StreamConfiguration.Video.Resolution].self, forKey: .supportedResolutions)
                 ?? Self.defaultSupportedResolutions
             supportedResolutions = Self.normalizedSupportedResolutions(decodedSupportedResolutions)
         }
@@ -94,7 +94,7 @@ public struct AppSettings: Codable, Sendable {
             try container.encode(supportedResolutions, forKey: .supportedResolutions)
         }
 
-        public static let defaultSupportedResolutions: [MVPConfiguration.Video.Resolution] = [
+        public static let defaultSupportedResolutions: [StreamConfiguration.Video.Resolution] = [
             .init(width: 3840, height: 2160),
             .init(width: 2560, height: 1600),
             .init(width: 2560, height: 1440),
@@ -106,15 +106,15 @@ public struct AppSettings: Codable, Sendable {
         ]
 
         public static func normalizedSupportedResolutions(
-            _ resolutions: [MVPConfiguration.Video.Resolution]
-        ) -> [MVPConfiguration.Video.Resolution] {
+            _ resolutions: [StreamConfiguration.Video.Resolution]
+        ) -> [StreamConfiguration.Video.Resolution] {
             let filtered = resolutions.filter(Self.isSupportedResolution)
             let unique = Array(Set(filtered))
             let sorted = unique.sorted(by: Self.sortsBefore)
             return sorted.isEmpty ? defaultSupportedResolutions : sorted
         }
 
-        public static func isSupportedResolution(_ resolution: MVPConfiguration.Video.Resolution) -> Bool {
+        public static func isSupportedResolution(_ resolution: StreamConfiguration.Video.Resolution) -> Bool {
             resolution.width > 0
                 && resolution.height > 0
                 && resolution.width.isMultiple(of: 2)
@@ -122,8 +122,8 @@ public struct AppSettings: Codable, Sendable {
         }
 
         private static func sortsBefore(
-            _ lhs: MVPConfiguration.Video.Resolution,
-            _ rhs: MVPConfiguration.Video.Resolution
+            _ lhs: StreamConfiguration.Video.Resolution,
+            _ rhs: StreamConfiguration.Video.Resolution
         ) -> Bool {
             let lhsPixels = lhs.width * lhs.height
             let rhsPixels = rhs.width * rhs.height
@@ -194,10 +194,10 @@ public struct AppSettings: Codable, Sendable {
 
 public extension AppSettings {
     static let initialWindowedVideo = Video(
-        resolution: MVPConfiguration.fallback.video.resolution,
-        fps: MVPConfiguration.fallback.video.fps,
-        bitrateKbps: MVPConfiguration.fallback.video.bitrateKbps,
-        packetSize: MVPConfiguration.fallback.video.packetSize,
+        resolution: StreamConfiguration.fallback.video.resolution,
+        fps: StreamConfiguration.fallback.video.fps,
+        bitrateKbps: StreamConfiguration.fallback.video.bitrateKbps,
+        packetSize: StreamConfiguration.fallback.video.packetSize,
         supportedResolutions: AppSettings.Video.defaultSupportedResolutions
     )
 
@@ -213,16 +213,16 @@ public extension AppSettings {
         appID: Int,
         autoConnectOnLaunch: Bool = false,
         requestResume: Bool = false,
-        resolution: MVPConfiguration.Video.Resolution? = nil,
+        resolution: StreamConfiguration.Video.Resolution? = nil,
         fps: Int? = nil
-    ) throws -> MVPConfiguration {
+    ) throws -> StreamConfiguration {
         guard let host else {
             throw AppSettingsError.missingHost
         }
 
         let requestedResolution = resolution ?? video.resolution
 
-        return MVPConfiguration(
+        return StreamConfiguration(
             host: .init(address: host.address, port: host.port, appID: appID),
             session: .init(autoConnectOnLaunch: autoConnectOnLaunch, requestResume: requestResume),
             input: .init(rawMouseSensitivity: input.rawMouseSensitivity),

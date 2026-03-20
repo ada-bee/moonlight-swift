@@ -80,7 +80,7 @@ final class StreamWindowController: NSWindowController, NSWindowDelegate {
         applyWindowSizing(isFullscreen: isFullscreen)
     }
 
-    func updateInputConfiguration(_ input: MVPConfiguration.Input) {
+    func updateInputConfiguration(_ input: StreamConfiguration.Input) {
         streamViewController.updateInputConfiguration(input)
     }
 

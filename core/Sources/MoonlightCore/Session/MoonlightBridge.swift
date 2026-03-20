@@ -29,7 +29,7 @@ public enum MoonlightBridgeError: Error, LocalizedError {
 public final class MoonlightBridge {
     public weak var delegate: MoonlightBridgeDelegate?
 
-    private let configuration: MVPConfiguration
+    private let configuration: StreamConfiguration
     fileprivate let renderer: VideoFrameRenderer
     private let audioRenderer = OpusAudioRenderer()
 
@@ -43,7 +43,7 @@ public final class MoonlightBridge {
     private var isStopInFlight = false
     private var stopWaiters: [CheckedContinuation<StopOutcome, Never>] = []
 
-    public init(configuration: MVPConfiguration, renderer: VideoFrameRenderer) {
+    public init(configuration: StreamConfiguration, renderer: VideoFrameRenderer) {
         self.configuration = configuration
         self.renderer = renderer
 

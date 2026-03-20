@@ -300,22 +300,22 @@ struct SettingsView: View {
         macAddress.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var supportedResolutions: [MVPConfiguration.Video.Resolution] {
+    private var supportedResolutions: [StreamConfiguration.Video.Resolution] {
         coordinator.settings.video.supportedResolutions
     }
 
-    private var defaultResolution: MVPConfiguration.Video.Resolution {
+    private var defaultResolution: StreamConfiguration.Video.Resolution {
         coordinator.windowedStreamResolution
     }
 
-    private var candidateResolution: MVPConfiguration.Video.Resolution? {
+    private var candidateResolution: StreamConfiguration.Video.Resolution? {
         guard let width = Int(trimmedResolutionWidthInput),
               let height = Int(trimmedResolutionHeightInput)
         else {
             return nil
         }
 
-        let resolution = MVPConfiguration.Video.Resolution(width: width, height: height)
+        let resolution = StreamConfiguration.Video.Resolution(width: width, height: height)
         guard AppSettings.Video.isSupportedResolution(resolution) else {
             return nil
         }
@@ -323,7 +323,7 @@ struct SettingsView: View {
         return resolution
     }
 
-    private var selectedSupportedResolution: MVPConfiguration.Video.Resolution? {
+    private var selectedSupportedResolution: StreamConfiguration.Video.Resolution? {
         supportedResolutions.first(where: { resolutionID(for: $0) == selectedResolutionID })
     }
 
@@ -582,7 +582,7 @@ struct SettingsView: View {
     }
 
     private func saveSupportedResolutions(
-        _ resolutions: [MVPConfiguration.Video.Resolution],
+        _ resolutions: [StreamConfiguration.Video.Resolution],
         successMessage: String
     ) {
         do {
@@ -644,11 +644,11 @@ struct SettingsView: View {
         }
     }
 
-    private func resolutionLabel(_ resolution: MVPConfiguration.Video.Resolution) -> String {
+    private func resolutionLabel(_ resolution: StreamConfiguration.Video.Resolution) -> String {
         "\(resolution.width) x \(resolution.height)"
     }
 
-    private func resolutionID(for resolution: MVPConfiguration.Video.Resolution) -> String {
+    private func resolutionID(for resolution: StreamConfiguration.Video.Resolution) -> String {
         "\(resolution.width)x\(resolution.height)"
     }
 }

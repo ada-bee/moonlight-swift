@@ -37,13 +37,13 @@ private enum HostSessionBootstrapDefaults {
 }
 
 public final class HostSessionBootstrapper {
-    private let configuration: MVPConfiguration
+    private let configuration: StreamConfiguration
     private let pairedIdentity: PairedIdentityState
     private let launchSession: LaunchSessionContext
     private let httpClient: PairingHTTPClient
 
     public init(
-        configuration: MVPConfiguration,
+        configuration: StreamConfiguration,
         pairedIdentity: PairedIdentityState,
         launchSession: LaunchSessionContext,
         httpClient: PairingHTTPClient = PairingHTTPClient()

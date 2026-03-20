@@ -56,14 +56,14 @@ public final class SessionController: NSObject, ObservableObject {
     @Published public private(set) var stageName: String = "Idle"
     @Published public private(set) var lastErrorDescription: String?
 
-    public let configuration: MVPConfiguration
+    public let configuration: StreamConfiguration
     public var onInputResetRequested: (@MainActor () -> Void)?
 
     private let bridge: MoonlightBridge
     private let renderer: VideoFrameRenderer
     private var activeStreamingActivity: NSObjectProtocol?
 
-    public init(configuration: MVPConfiguration) {
+    public init(configuration: StreamConfiguration) {
         self.configuration = configuration
         self.renderer = MetalVideoRenderer()
         self.bridge = MoonlightBridge(configuration: configuration, renderer: renderer)

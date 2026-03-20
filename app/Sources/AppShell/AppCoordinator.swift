@@ -74,7 +74,7 @@ final class AppCoordinator: ObservableObject {
     private var queuedLibraryRefreshShowsLoading = false
     private var isDockVisible = false
 
-    private static let desktopApplicationID = MVPConfiguration.fallback.host.appID
+    private static let desktopApplicationID = StreamConfiguration.fallback.host.appID
     private static let desktopApplicationName = "Desktop"
 
     init(
@@ -351,7 +351,7 @@ final class AppCoordinator: ObservableObject {
         settings.streamMode
     }
 
-    var windowedStreamResolution: MVPConfiguration.Video.Resolution {
+    var windowedStreamResolution: StreamConfiguration.Video.Resolution {
         settings.video.resolution
     }
 
@@ -359,7 +359,7 @@ final class AppCoordinator: ObservableObject {
         settings.video.fps
     }
 
-    var currentStreamResolution: MVPConfiguration.Video.Resolution? {
+    var currentStreamResolution: StreamConfiguration.Video.Resolution? {
         if let activeSessionController {
             return activeSessionController.configuration.video.resolution
         }
@@ -457,7 +457,7 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func setWindowedStreamResolution(_ resolution: MVPConfiguration.Video.Resolution) {
+    func setWindowedStreamResolution(_ resolution: StreamConfiguration.Video.Resolution) {
         guard !launchInProgress, !stopInProgress else {
             return
         }
@@ -547,12 +547,12 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func saveSupportedResolutions(_ resolutions: [MVPConfiguration.Video.Resolution]) throws {
+    func saveSupportedResolutions(_ resolutions: [StreamConfiguration.Video.Resolution]) throws {
         var updatedSettings = settings
         let normalizedResolutions = AppSettings.Video.normalizedSupportedResolutions(resolutions)
         updatedSettings.video.supportedResolutions = normalizedResolutions
 
-        let defaultResolution = MVPConfiguration.Video.Resolution(
+        let defaultResolution = StreamConfiguration.Video.Resolution(
             width: updatedSettings.video.resolution.width,
             height: updatedSettings.video.resolution.height
         )
@@ -566,7 +566,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     func saveWindowedVideoSettings(
-        resolution: MVPConfiguration.Video.Resolution,
+        resolution: StreamConfiguration.Video.Resolution,
         fps: Int
     ) throws {
         var updatedSettings = settings
@@ -1045,14 +1045,14 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func launchVideoMode(for mode: StreamMode) -> (resolution: MVPConfiguration.Video.Resolution, fps: Int) {
+    private func launchVideoMode(for mode: StreamMode) -> (resolution: StreamConfiguration.Video.Resolution, fps: Int) {
         if mode == .fullscreen,
            let mainScreen = NSScreen.main
         {
             let frame = mainScreen.frame
             let scale = max(mainScreen.backingScaleFactor, 1.0)
             return (
-                resolution: MVPConfiguration.Video.Resolution(
+                resolution: StreamConfiguration.Video.Resolution(
                     width: Int(frame.width * scale),
                     height: Int(frame.height * scale)
                 ),
@@ -1163,7 +1163,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func startSession(
-        configuration: MVPConfiguration,
+        configuration: StreamConfiguration,
         launchesFullscreen: Bool
     ) {
         launchInProgress = true

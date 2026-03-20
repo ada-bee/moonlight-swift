@@ -5,7 +5,7 @@ struct StreamCommands: Commands {
     @ObservedObject var coordinator: AppCoordinator
 
     private struct ResolutionOption: Hashable, Identifiable {
-        let resolution: MVPConfiguration.Video.Resolution
+        let resolution: StreamConfiguration.Video.Resolution
 
         var id: String {
             "\(resolution.width)x\(resolution.height)"
@@ -98,7 +98,7 @@ struct StreamCommands: Commands {
         )
     }
 
-    private func resolutionBinding(for resolution: MVPConfiguration.Video.Resolution) -> Binding<Bool> {
+    private func resolutionBinding(for resolution: StreamConfiguration.Video.Resolution) -> Binding<Bool> {
         Binding(
             get: { coordinator.windowedStreamResolution == resolution },
             set: { isSelected in

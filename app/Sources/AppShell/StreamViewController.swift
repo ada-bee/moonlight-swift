@@ -65,7 +65,7 @@ final class StreamViewController: NSViewController {
         inputView.setMouseCaptureState(isActive)
     }
 
-    func updateInputConfiguration(_ input: MVPConfiguration.Input) {
+    func updateInputConfiguration(_ input: StreamConfiguration.Input) {
         inputView.updateInputConfiguration(input)
     }
 
