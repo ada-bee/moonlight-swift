@@ -244,38 +244,12 @@ struct MenuBarView: View {
 }
 
 struct MenuBarStatusIcon: View {
-    let streamActivityState: AppCoordinator.StreamActivityState
-
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Image(nsImage: MenuBarIconAsset.image)
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 18, height: 18)
-
-            if let dotColor {
-                Circle()
-                    .fill(dotColor)
-                    .frame(width: 7, height: 7)
-                    .overlay(
-                        Circle()
-                            .stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1)
-                    )
-                    .offset(x: 2, y: 1)
-            }
-        }
+        Image(nsImage: MenuBarIconAsset.image)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 18, height: 18)
         .frame(width: 20, height: 18)
-    }
-
-    private var dotColor: Color? {
-        switch streamActivityState {
-        case .inactive:
-            return nil
-        case .paused:
-            return Color(nsColor: .systemOrange)
-        case .streaming:
-            return Color(nsColor: .systemGreen)
-        }
     }
 }

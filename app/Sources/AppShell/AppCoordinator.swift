@@ -6,12 +6,6 @@ import MoonlightCore
 
 @MainActor
 final class AppCoordinator: ObservableObject {
-    enum StreamActivityState {
-        case inactive
-        case paused
-        case streaming
-    }
-
     enum MenuBarPopupState: Equatable {
         case offline
         case ready
@@ -420,18 +414,6 @@ final class AppCoordinator: ObservableObject {
                 )
             )
         }
-    }
-
-    var streamActivityState: StreamActivityState {
-        if activeStreamApplicationID != nil {
-            return .streaming
-        }
-
-        if currentRunningApplicationID != 0 {
-            return .paused
-        }
-
-        return .inactive
     }
 
     var hasRunningApplication: Bool {

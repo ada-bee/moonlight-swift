@@ -26,7 +26,7 @@ struct AppMain: App {
                 }
                 .frame(minWidth: 380)
         } label: {
-            MenuBarStatusIcon(streamActivityState: coordinator.streamActivityState)
+            MenuBarStatusIcon()
         }
         .menuBarExtraStyle(.window)
 
