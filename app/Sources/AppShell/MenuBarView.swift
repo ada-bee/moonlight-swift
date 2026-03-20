@@ -17,6 +17,7 @@ private enum MenuBarIconAsset {
 }
 
 struct MenuBarView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var coordinator: AppCoordinator
 
     var body: some View {
@@ -266,6 +267,7 @@ struct MenuBarView: View {
             get: { coordinator.streamMode == .fullscreen },
             set: { isSelected in
                 coordinator.setStreamMode(isSelected ? .fullscreen : .windowed)
+                dismiss()
             }
         )
     }
@@ -297,11 +299,14 @@ struct MenuBarView: View {
         switch coordinator.streamActivityState {
         case .inactive:
             coordinator.launchDesktop()
+            dismiss()
         case .paused:
             if coordinator.canResumeRunningApplication {
                 coordinator.resumeRunningApplication()
+                dismiss()
             } else {
                 coordinator.launchDesktop()
+                dismiss()
             }
         case .streaming:
             coordinator.presentActiveStreamWindow()
