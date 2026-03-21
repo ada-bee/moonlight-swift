@@ -21,15 +21,23 @@ struct SettingsView: View {
 
     @State private var rawMouseSensitivity = AppSettings.Input.defaultRawMouseSensitivity
 
-    @State private var windowedWidthInput = ""
-    @State private var windowedHeightInput = ""
-    @State private var windowedFPSInput = ""
+    @State private var presetOneWidthInput = ""
+    @State private var presetOneHeightInput = ""
+    @State private var presetOneFPSInput = ""
+    @State private var presetOneScreenMode: StreamMode = .windowed
+    @State private var presetOneMouseMode: StreamMouseModePreference = .absolute
 
-    @State private var fullscreenWidthInput = ""
-    @State private var fullscreenHeightInput = ""
-    @State private var fullscreenFPSInput = ""
-    @State private var alwaysUseNativeFullscreenVideoMode = true
-    @State private var alwaysUseNativeFullscreenRawMouseInput = true
+    @State private var presetTwoWidthInput = ""
+    @State private var presetTwoHeightInput = ""
+    @State private var presetTwoFPSInput = ""
+    @State private var presetTwoScreenMode: StreamMode = .fullscreen
+    @State private var presetTwoMouseMode: StreamMouseModePreference = .raw
+
+    @State private var presetThreeWidthInput = ""
+    @State private var presetThreeHeightInput = ""
+    @State private var presetThreeFPSInput = ""
+    @State private var presetThreeScreenMode: StreamMode = .fullscreen
+    @State private var presetThreeMouseMode: StreamMouseModePreference = .raw
 
     var body: some View {
         ScrollView {
@@ -43,7 +51,7 @@ struct SettingsView: View {
         .background(settingsBackground)
         .onAppear(perform: loadState)
         .onReceive(coordinator.$settings) { _ in
-            syncVideoInputs()
+            syncPresetInputs()
             syncInputSettings()
 
             if showPairingFlow == false {
@@ -72,35 +80,43 @@ struct SettingsView: View {
 
     private var streamSection: some View {
         preferenceSection(
-            title: "Video",
-            description: "Configure the fixed launch values for windowed and fullscreen streaming."
+            title: "Presets",
+            description: "Configure the three launch presets shown in the menu bar popup."
         ) {
             VStack(alignment: .leading, spacing: 18) {
-                videoModeEditor(
-                    title: "Windowed",
-                    width: $windowedWidthInput,
-                    height: $windowedHeightInput,
-                    fps: $windowedFPSInput,
-                    isDisabled: false,
-                    action: saveWindowedVideoSettings
+                streamPresetEditor(
+                    title: "Preset 1",
+                    screenMode: $presetOneScreenMode,
+                    width: $presetOneWidthInput,
+                    height: $presetOneHeightInput,
+                    fps: $presetOneFPSInput,
+                    mouseMode: $presetOneMouseMode,
+                    action: { saveStreamPreset(.one) }
                 )
 
                 Divider()
 
-                videoModeEditor(
-                    title: "Fullscreen",
-                    width: $fullscreenWidthInput,
-                    height: $fullscreenHeightInput,
-                    fps: $fullscreenFPSInput,
-                    isDisabled: alwaysUseNativeFullscreenVideoMode,
-                    action: saveFullscreenVideoSettings
+                streamPresetEditor(
+                    title: "Preset 2",
+                    screenMode: $presetTwoScreenMode,
+                    width: $presetTwoWidthInput,
+                    height: $presetTwoHeightInput,
+                    fps: $presetTwoFPSInput,
+                    mouseMode: $presetTwoMouseMode,
+                    action: { saveStreamPreset(.two) }
                 )
 
-                Toggle("Always use display native resolution and framerate", isOn: nativeFullscreenVideoBinding)
-                    .toggleStyle(.switch)
+                Divider()
 
-                Toggle("Always use native raw mouse input in fullscreen", isOn: nativeRawMouseBinding)
-                    .toggleStyle(.switch)
+                streamPresetEditor(
+                    title: "Preset 3",
+                    screenMode: $presetThreeScreenMode,
+                    width: $presetThreeWidthInput,
+                    height: $presetThreeHeightInput,
+                    fps: $presetThreeFPSInput,
+                    mouseMode: $presetThreeMouseMode,
+                    action: { saveStreamPreset(.three) }
+                )
             }
 
             feedbackText(streamFeedbackMessage, isError: streamFeedbackIsError)
@@ -240,26 +256,6 @@ struct SettingsView: View {
         }
     }
 
-    private var nativeFullscreenVideoBinding: Binding<Bool> {
-        Binding(
-            get: { alwaysUseNativeFullscreenVideoMode },
-            set: { newValue in
-                alwaysUseNativeFullscreenVideoMode = newValue
-                saveFullscreenPreferences()
-            }
-        )
-    }
-
-    private var nativeRawMouseBinding: Binding<Bool> {
-        Binding(
-            get: { alwaysUseNativeFullscreenRawMouseInput },
-            set: { newValue in
-                alwaysUseNativeFullscreenRawMouseInput = newValue
-                saveFullscreenPreferences()
-            }
-        )
-    }
-
     private var rawMouseSensitivityBinding: Binding<Double> {
         Binding(
             get: { rawMouseSensitivity },
@@ -324,22 +320,40 @@ struct SettingsView: View {
 
     private func loadState() {
         hostInput = coordinator.settings.host?.displayString ?? ""
-        syncVideoInputs()
+        syncPresetInputs()
         syncInputSettings()
         loadWakeOnLANConfiguration()
     }
 
-    private func syncVideoInputs() {
-        windowedWidthInput = String(coordinator.windowedStreamResolution.width)
-        windowedHeightInput = String(coordinator.windowedStreamResolution.height)
-        windowedFPSInput = String(coordinator.windowedStreamFPS)
+    private func syncPresetInputs() {
+        syncPresetInput(.one)
+        syncPresetInput(.two)
+        syncPresetInput(.three)
+    }
 
-        fullscreenWidthInput = String(coordinator.fullscreenStreamResolution.width)
-        fullscreenHeightInput = String(coordinator.fullscreenStreamResolution.height)
-        fullscreenFPSInput = String(coordinator.fullscreenStreamFPS)
+    private func syncPresetInput(_ presetID: StreamPresetID) {
+        let preset = coordinator.streamPreset(for: presetID)
 
-        alwaysUseNativeFullscreenVideoMode = coordinator.prefersNativeFullscreenVideoMode
-        alwaysUseNativeFullscreenRawMouseInput = coordinator.prefersNativeFullscreenRawMouseInput
+        switch presetID {
+        case .one:
+            presetOneWidthInput = String(preset.resolution.width)
+            presetOneHeightInput = String(preset.resolution.height)
+            presetOneFPSInput = String(preset.fps)
+            presetOneScreenMode = preset.screenMode
+            presetOneMouseMode = preset.mouseMode
+        case .two:
+            presetTwoWidthInput = String(preset.resolution.width)
+            presetTwoHeightInput = String(preset.resolution.height)
+            presetTwoFPSInput = String(preset.fps)
+            presetTwoScreenMode = preset.screenMode
+            presetTwoMouseMode = preset.mouseMode
+        case .three:
+            presetThreeWidthInput = String(preset.resolution.width)
+            presetThreeHeightInput = String(preset.resolution.height)
+            presetThreeFPSInput = String(preset.fps)
+            presetThreeScreenMode = preset.screenMode
+            presetThreeMouseMode = preset.mouseMode
+        }
     }
 
     private func syncInputSettings() {
@@ -359,42 +373,23 @@ struct SettingsView: View {
         wakeOnLANFeedbackIsError = false
     }
 
-    private func saveWindowedVideoSettings() {
+    private func saveStreamPreset(_ presetID: StreamPresetID) {
         do {
-            let resolution = try resolutionFromInputs(width: windowedWidthInput, height: windowedHeightInput)
-            let fps = try fpsFromInput(windowedFPSInput)
-            try coordinator.saveWindowedVideoSettings(resolution: resolution, fps: fps)
-            streamFeedbackMessage = "Windowed settings updated."
-            streamFeedbackIsError = false
-            syncVideoInputs()
-        } catch {
-            streamFeedbackMessage = error.localizedDescription
-            streamFeedbackIsError = true
-        }
-    }
-
-    private func saveFullscreenVideoSettings() {
-        do {
-            let resolution = try resolutionFromInputs(width: fullscreenWidthInput, height: fullscreenHeightInput)
-            let fps = try fpsFromInput(fullscreenFPSInput)
-            try coordinator.saveFullscreenVideoSettings(resolution: resolution, fps: fps)
-            streamFeedbackMessage = "Fullscreen settings updated."
-            streamFeedbackIsError = false
-            syncVideoInputs()
-        } catch {
-            streamFeedbackMessage = error.localizedDescription
-            streamFeedbackIsError = true
-        }
-    }
-
-    private func saveFullscreenPreferences() {
-        do {
-            try coordinator.saveFullscreenPresentationPreferences(
-                prefersNativeVideoMode: alwaysUseNativeFullscreenVideoMode,
-                prefersNativeRawMouseInput: alwaysUseNativeFullscreenRawMouseInput
+            let resolution = try resolutionFromInputs(
+                width: presetWidthInput(for: presetID),
+                height: presetHeightInput(for: presetID)
             )
-            streamFeedbackMessage = "Fullscreen preferences updated."
+            let fps = try fpsFromInput(presetFPSInput(for: presetID))
+            try coordinator.saveStreamPreset(
+                presetID,
+                screenMode: presetScreenMode(for: presetID),
+                resolution: resolution,
+                fps: fps,
+                mouseMode: presetMouseMode(for: presetID)
+            )
+            streamFeedbackMessage = "Preset \(presetLabel(for: presetID)) updated."
             streamFeedbackIsError = false
+            syncPresetInput(presetID)
         } catch {
             streamFeedbackMessage = error.localizedDescription
             streamFeedbackIsError = true
@@ -549,17 +544,54 @@ struct SettingsView: View {
         }
     }
 
-    private func videoModeEditor(
+    private func streamPresetEditor(
         title: String,
+        screenMode: Binding<StreamMode>,
         width: Binding<String>,
         height: Binding<String>,
         fps: Binding<String>,
-        isDisabled: Bool,
+        mouseMode: Binding<StreamMouseModePreference>,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.headline)
+
+                if coordinator.selectedStreamPresetID == presetID(for: title) {
+                    Text("Active")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(nsColor: .systemGreen))
+                }
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Screen")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    Picker("Screen Mode", selection: screenMode) {
+                        Text("Windowed").tag(StreamMode.windowed)
+                        Text("Fullscreen").tag(StreamMode.fullscreen)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Mouse")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    Picker("Mouse Mode", selection: mouseMode) {
+                        Text("Absolute").tag(StreamMouseModePreference.absolute)
+                        Text("Raw").tag(StreamMouseModePreference.raw)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
+                }
+            }
 
             HStack(alignment: .top, spacing: 12) {
                 settingField(title: "Width", placeholder: "1920", text: width)
@@ -571,10 +603,85 @@ struct SettingsView: View {
 
                     Button("Apply", action: action)
                         .buttonStyle(.bordered)
-                        .disabled(isDisabled)
                 }
             }
-            .disabled(isDisabled)
+        }
+    }
+
+    private func presetLabel(for presetID: StreamPresetID) -> String {
+        switch presetID {
+        case .one:
+            return "1"
+        case .two:
+            return "2"
+        case .three:
+            return "3"
+        }
+    }
+
+    private func presetID(for title: String) -> StreamPresetID {
+        switch title {
+        case "Preset 1":
+            return .one
+        case "Preset 2":
+            return .two
+        default:
+            return .three
+        }
+    }
+
+    private func presetWidthInput(for presetID: StreamPresetID) -> String {
+        switch presetID {
+        case .one:
+            return presetOneWidthInput
+        case .two:
+            return presetTwoWidthInput
+        case .three:
+            return presetThreeWidthInput
+        }
+    }
+
+    private func presetHeightInput(for presetID: StreamPresetID) -> String {
+        switch presetID {
+        case .one:
+            return presetOneHeightInput
+        case .two:
+            return presetTwoHeightInput
+        case .three:
+            return presetThreeHeightInput
+        }
+    }
+
+    private func presetFPSInput(for presetID: StreamPresetID) -> String {
+        switch presetID {
+        case .one:
+            return presetOneFPSInput
+        case .two:
+            return presetTwoFPSInput
+        case .three:
+            return presetThreeFPSInput
+        }
+    }
+
+    private func presetScreenMode(for presetID: StreamPresetID) -> StreamMode {
+        switch presetID {
+        case .one:
+            return presetOneScreenMode
+        case .two:
+            return presetTwoScreenMode
+        case .three:
+            return presetThreeScreenMode
+        }
+    }
+
+    private func presetMouseMode(for presetID: StreamPresetID) -> StreamMouseModePreference {
+        switch presetID {
+        case .one:
+            return presetOneMouseMode
+        case .two:
+            return presetTwoMouseMode
+        case .three:
+            return presetThreeMouseMode
         }
     }
 

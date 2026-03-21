@@ -66,7 +66,7 @@ struct MenuBarView: View {
 
             Spacer(minLength: 0)
 
-            streamModeToggle
+            presetSelector
         }
     }
 
@@ -103,18 +103,19 @@ struct MenuBarView: View {
             .glassEffect(.clear, in: Circle())
     }
 
-    private var streamModeToggle: some View {
-        Toggle(isOn: fullscreenBinding) {
-            Image(systemName: streamModeGlyphSymbol)
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 20, height: 20)
-                .padding(.trailing, 4)
+    private var presetSelector: some View {
+        Picker("Preset", selection: selectedPresetBinding) {
+            ForEach(coordinator.streamPresetIDs, id: \.self) { presetID in
+                Text(presetButtonTitle(for: presetID))
+                    .tag(presetID)
+            }
         }
-        .toggleStyle(.switch)
-        .controlSize(.regular)
-        .help(streamModeHelpText)
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 108)
+        .help(selectedPresetHelpText)
         .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
-        .accessibilityLabel(streamModeAccessibilityLabel)
+        .accessibilityLabel(selectedPresetAccessibilityLabel)
     }
 
     private func menuPanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -186,12 +187,10 @@ struct MenuBarView: View {
         }
     }
 
-    private var fullscreenBinding: Binding<Bool> {
+    private var selectedPresetBinding: Binding<StreamPresetID> {
         Binding(
-            get: { coordinator.streamMode == .fullscreen },
-            set: { isSelected in
-                coordinator.setStreamMode(isSelected ? .fullscreen : .windowed)
-            }
+            get: { coordinator.selectedStreamPresetID },
+            set: { coordinator.setSelectedStreamPreset($0) }
         )
     }
 
@@ -208,31 +207,33 @@ struct MenuBarView: View {
         }
     }
 
-    private var streamModeGlyphSymbol: String {
-        switch coordinator.streamMode {
-        case .fullscreen:
-            return "arrow.up.left.and.arrow.down.right"
-        case .windowed:
-            return "macwindow"
+    private func presetButtonTitle(for presetID: StreamPresetID) -> String {
+        switch presetID {
+        case .one:
+            return "1"
+        case .two:
+            return "2"
+        case .three:
+            return "3"
         }
     }
 
-    private var streamModeHelpText: String {
-        switch coordinator.streamMode {
-        case .fullscreen:
-            return "Switch to windowed"
-        case .windowed:
-            return "Switch to fullscreen"
-        }
+    private func presetButtonHelpText(for preset: AppSettings.StreamPreset) -> String {
+        let mode = preset.screenMode == .fullscreen ? "Fullscreen" : "Windowed"
+        let mouse = preset.mouseMode == .raw ? "Raw mouse" : "Absolute mouse"
+        return "\(mode) - \(preset.resolution.width) x \(preset.resolution.height) @ \(preset.fps) Hz - \(mouse)"
     }
 
-    private var streamModeAccessibilityLabel: String {
-        switch coordinator.streamMode {
-        case .fullscreen:
-            return "Fullscreen"
-        case .windowed:
-            return "Windowed"
-        }
+    private var selectedPresetHelpText: String {
+        let presetID = coordinator.selectedStreamPresetID
+        let preset = coordinator.streamPreset(for: presetID)
+        return "Preset \(presetButtonTitle(for: presetID)): \(presetButtonHelpText(for: preset))"
+    }
+
+    private var selectedPresetAccessibilityLabel: String {
+        let presetID = coordinator.selectedStreamPresetID
+        let preset = coordinator.streamPreset(for: presetID)
+        return "Preset selector, selected preset \(presetButtonTitle(for: presetID)), \(presetButtonHelpText(for: preset))"
     }
 
     private enum ActionButtonProminence {

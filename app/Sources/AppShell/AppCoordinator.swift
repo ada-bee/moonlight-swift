@@ -420,32 +420,32 @@ final class AppCoordinator: ObservableObject {
         currentRunningApplicationID != 0
     }
 
-    var streamMode: StreamMode {
-        settings.streamMode
+    var selectedStreamPresetID: StreamPresetID {
+        settings.selectedStreamPresetID
     }
 
-    var windowedStreamResolution: StreamConfiguration.Video.Resolution {
-        settings.video.resolution
+    var selectedStreamPreset: AppSettings.StreamPreset {
+        settings.selectedStreamPreset
     }
 
-    var windowedStreamFPS: Int {
-        settings.video.fps
+    var streamPresetIDs: [StreamPresetID] {
+        StreamPresetID.allCases
     }
 
-    var fullscreenStreamResolution: StreamConfiguration.Video.Resolution {
-        settings.video.fullscreenResolution
+    func streamPreset(for id: StreamPresetID) -> AppSettings.StreamPreset {
+        settings.video.preset(id)
     }
 
-    var fullscreenStreamFPS: Int {
-        settings.video.fullscreenFPS
+    var configuredScreenMode: StreamMode {
+        selectedStreamPreset.screenMode
     }
 
-    var prefersNativeFullscreenVideoMode: Bool {
-        settings.video.prefersNativeFullscreenVideoMode
+    var configuredMouseModePreference: StreamMouseModePreference {
+        selectedStreamPreset.mouseMode
     }
 
-    var prefersNativeFullscreenRawMouseInput: Bool {
-        settings.video.prefersNativeFullscreenRawMouseInput
+    var configuredMouseMode: StreamMouseMode {
+        streamMouseMode(for: selectedStreamPreset.mouseMode)
     }
 
     var currentStreamResolution: StreamConfiguration.Video.Resolution? {
@@ -457,7 +457,7 @@ final class AppCoordinator: ObservableObject {
             return nil
         }
 
-        return launchVideoMode(for: streamMode).resolution
+        return selectedStreamPreset.resolution
     }
 
     var currentStreamFPS: Int? {
@@ -469,15 +469,15 @@ final class AppCoordinator: ObservableObject {
             return nil
         }
 
-        return launchVideoMode(for: streamMode).fps
+        return selectedStreamPreset.fps
     }
 
     var configuredStreamResolution: StreamConfiguration.Video.Resolution {
-        launchVideoMode(for: streamMode).resolution
+        selectedStreamPreset.resolution
     }
 
     var configuredStreamFPS: Int {
-        launchVideoMode(for: streamMode).fps
+        selectedStreamPreset.fps
     }
 
     var hasWakeOnLANConfiguration: Bool {
@@ -525,60 +525,29 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func setStreamMode(_ mode: StreamMode) {
+    func setSelectedStreamPreset(_ presetID: StreamPresetID) {
         guard !launchInProgress, !stopInProgress else {
             return
         }
 
-        guard streamMode != mode else {
+        guard selectedStreamPresetID != presetID else {
             return
         }
 
         do {
-            try saveStreamMode(mode)
+            try saveSelectedStreamPresetID(presetID)
             reconnectActiveStreamIfNeeded()
         } catch {
             libraryActionError = error.localizedDescription
         }
     }
 
-    func setWindowedStreamResolution(_ resolution: StreamConfiguration.Video.Resolution) {
-        guard !launchInProgress, !stopInProgress else {
-            return
-        }
-
-        guard windowedStreamResolution != resolution else {
-            return
-        }
-
-        do {
-            try saveWindowedVideoSettings(resolution: resolution, fps: windowedStreamFPS)
-            reconnectActiveStreamIfNeeded(onlyWhenWindowed: true)
-        } catch {
-            libraryActionError = error.localizedDescription
-        }
-    }
-
-    func setWindowedStreamFPS(_ fps: Int) {
-        guard !launchInProgress, !stopInProgress else {
-            return
-        }
-
-        guard windowedStreamFPS != fps else {
-            return
-        }
-
-        do {
-            try saveWindowedVideoSettings(resolution: windowedStreamResolution, fps: fps)
-            reconnectActiveStreamIfNeeded(onlyWhenWindowed: true)
-        } catch {
-            libraryActionError = error.localizedDescription
-        }
-    }
-
-    func saveFullscreenVideoSettings(
+    func saveStreamPreset(
+        _ presetID: StreamPresetID,
+        screenMode: StreamMode,
         resolution: StreamConfiguration.Video.Resolution,
-        fps: Int
+        fps: Int,
+        mouseMode: StreamMouseModePreference
     ) throws {
         guard AppSettings.Video.isSupportedResolution(resolution) else {
             throw AppSettingsError.unsupportedResolution
@@ -589,19 +558,21 @@ final class AppCoordinator: ObservableObject {
         }
 
         var updatedSettings = settings
-        updatedSettings.video.fullscreenResolution = resolution
-        updatedSettings.video.fullscreenFPS = fps
+        if updatedSettings.video.supportedResolutions.contains(resolution) == false {
+            updatedSettings.video.supportedResolutions = AppSettings.Video.normalizedSupportedResolutions(
+                updatedSettings.video.supportedResolutions + [resolution]
+            )
+        }
 
-        try persistSettings(updatedSettings)
-    }
-
-    func saveFullscreenPresentationPreferences(
-        prefersNativeVideoMode: Bool,
-        prefersNativeRawMouseInput: Bool
-    ) throws {
-        var updatedSettings = settings
-        updatedSettings.video.prefersNativeFullscreenVideoMode = prefersNativeVideoMode
-        updatedSettings.video.prefersNativeFullscreenRawMouseInput = prefersNativeRawMouseInput
+        updatedSettings.video.setPreset(
+            .init(
+                screenMode: screenMode,
+                resolution: resolution,
+                fps: fps,
+                mouseMode: mouseMode
+            ),
+            for: presetID
+        )
 
         try persistSettings(updatedSettings)
     }
@@ -667,33 +638,22 @@ final class AppCoordinator: ObservableObject {
         let normalizedResolutions = AppSettings.Video.normalizedSupportedResolutions(resolutions)
         updatedSettings.video.supportedResolutions = normalizedResolutions
 
-        let defaultResolution = StreamConfiguration.Video.Resolution(
-            width: updatedSettings.video.resolution.width,
-            height: updatedSettings.video.resolution.height
-        )
-        if normalizedResolutions.contains(defaultResolution) == false,
-           let fallbackResolution = normalizedResolutions.first
-        {
-            updatedSettings.video.resolution = fallbackResolution
+        if let fallbackResolution = normalizedResolutions.first {
+            for presetID in StreamPresetID.allCases {
+                let preset = updatedSettings.video.preset(presetID)
+                if normalizedResolutions.contains(preset.resolution) == false {
+                    updatedSettings.video.setPreset(
+                        .init(
+                            screenMode: preset.screenMode,
+                            resolution: fallbackResolution,
+                            fps: preset.fps,
+                            mouseMode: preset.mouseMode
+                        ),
+                        for: presetID
+                    )
+                }
+            }
         }
-
-        try persistSettings(updatedSettings)
-    }
-
-    func saveWindowedVideoSettings(
-        resolution: StreamConfiguration.Video.Resolution,
-        fps: Int
-    ) throws {
-        var updatedSettings = settings
-
-        if updatedSettings.video.supportedResolutions.contains(resolution) == false {
-            updatedSettings.video.supportedResolutions = AppSettings.Video.normalizedSupportedResolutions(
-                updatedSettings.video.supportedResolutions + [resolution]
-            )
-        }
-
-        updatedSettings.video.resolution = resolution
-        updatedSettings.video.fps = fps
 
         try persistSettings(updatedSettings)
     }
@@ -937,24 +897,23 @@ final class AppCoordinator: ObservableObject {
                     try await self.stopHostApplication()
                 }
 
-                let streamMode = await MainActor.run { self.streamMode }
-                let requestedVideoMode = await MainActor.run { self.launchVideoMode(for: streamMode) }
+                let selectedPreset = await MainActor.run { self.selectedStreamPreset }
                 let requestResume = runningApplicationID == applicationID
                 let configuration = try await MainActor.run {
                     try self.settings.makeConfiguration(
                         appID: applicationID,
                         autoConnectOnLaunch: false,
                         requestResume: requestResume,
-                        resolution: requestedVideoMode.resolution,
-                        fps: requestedVideoMode.fps
+                        resolution: selectedPreset.resolution,
+                        fps: selectedPreset.fps
                     )
                 }
 
                 await MainActor.run {
                     self.startSession(
                         configuration: configuration,
-                        launchesFullscreen: streamMode == .fullscreen,
-                        prefersNativeRawMouseInput: self.settings.video.prefersNativeFullscreenRawMouseInput
+                        launchesFullscreen: selectedPreset.screenMode == .fullscreen,
+                        mouseMode: self.streamMouseMode(for: selectedPreset.mouseMode)
                     )
                 }
             } catch {
@@ -1202,64 +1161,23 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func launchVideoMode(for mode: StreamMode) -> (resolution: StreamConfiguration.Video.Resolution, fps: Int) {
-        if mode == .fullscreen,
-            let mainScreen = NSScreen.main
-        {
-            if settings.video.prefersNativeFullscreenVideoMode {
-            let frame = mainScreen.frame
-            let scale = max(mainScreen.backingScaleFactor, 1.0)
-            return (
-                resolution: StreamConfiguration.Video.Resolution(
-                    width: Int(frame.width * scale),
-                    height: Int(frame.height * scale)
-                ),
-                fps: nativeRefreshRate(for: mainScreen) ?? windowedStreamFPS
-            )
-            }
-
-            return (
-                resolution: fullscreenStreamResolution,
-                fps: fullscreenStreamFPS
-            )
-        }
-
-        return (resolution: windowedStreamResolution, fps: windowedStreamFPS)
-    }
-
-    private func nativeRefreshRate(for screen: NSScreen) -> Int? {
-        if screen.maximumFramesPerSecond > 0 {
-            return screen.maximumFramesPerSecond
-        }
-
-        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-            return nil
-        }
-
-        guard let displayMode = CGDisplayCopyDisplayMode(CGDirectDisplayID(screenNumber.uint32Value)) else {
-            return nil
-        }
-
-        let refreshRate = displayMode.refreshRate
-        guard refreshRate > 0 else {
-            return nil
-        }
-
-        return Int(refreshRate.rounded())
-    }
-
-    private func saveStreamMode(_ mode: StreamMode) throws {
+    private func saveSelectedStreamPresetID(_ presetID: StreamPresetID) throws {
         var updatedSettings = settings
-        updatedSettings.streamMode = mode
+        updatedSettings.selectedStreamPresetID = presetID
         try persistSettings(updatedSettings)
     }
 
-    private func reconnectActiveStreamIfNeeded(onlyWhenWindowed: Bool = false) {
-        guard let applicationID = activeStreamApplicationID else {
-            return
+    private func streamMouseMode(for preference: StreamMouseModePreference) -> StreamMouseMode {
+        switch preference {
+        case .absolute:
+            return .absolute
+        case .raw:
+            return .raw
         }
+    }
 
-        if onlyWhenWindowed, streamMode != .windowed {
+    private func reconnectActiveStreamIfNeeded() {
+        guard let applicationID = activeStreamApplicationID else {
             return
         }
 
@@ -1290,9 +1208,7 @@ final class AppCoordinator: ObservableObject {
                     throw ActiveStreamResumeError.noActiveStream
                 }
 
-                let requestedVideoMode = await MainActor.run {
-                    self.launchVideoMode(for: self.streamMode)
-                }
+                let selectedPreset = await MainActor.run { self.selectedStreamPreset }
 
                 await self.teardownActiveSession(closeErrorWindow: true)
 
@@ -1306,16 +1222,16 @@ final class AppCoordinator: ObservableObject {
                         appID: applicationID,
                         autoConnectOnLaunch: false,
                         requestResume: true,
-                        resolution: requestedVideoMode.resolution,
-                        fps: requestedVideoMode.fps
+                        resolution: selectedPreset.resolution,
+                        fps: selectedPreset.fps
                     )
                 }
 
                 await MainActor.run {
                     self.startSession(
                         configuration: configuration,
-                        launchesFullscreen: self.streamMode == .fullscreen,
-                        prefersNativeRawMouseInput: self.settings.video.prefersNativeFullscreenRawMouseInput
+                        launchesFullscreen: selectedPreset.screenMode == .fullscreen,
+                        mouseMode: self.streamMouseMode(for: selectedPreset.mouseMode)
                     )
                 }
             } catch {
@@ -1330,7 +1246,7 @@ final class AppCoordinator: ObservableObject {
     private func startSession(
         configuration: StreamConfiguration,
         launchesFullscreen: Bool,
-        prefersNativeRawMouseInput: Bool
+        mouseMode: StreamMouseMode
     ) {
         launchInProgress = true
 
@@ -1344,7 +1260,7 @@ final class AppCoordinator: ObservableObject {
         let streamWindowController = StreamWindowController(
             sessionController: sessionController,
             launchesFullscreen: launchesFullscreen,
-            prefersNativeRawMouseInput: prefersNativeRawMouseInput
+            mouseMode: mouseMode
         )
         sessionController.onInputResetRequested = { [weak streamWindowController] in
             streamWindowController?.resetLocalInputState()

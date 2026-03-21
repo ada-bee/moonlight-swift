@@ -35,40 +35,55 @@ public struct AppSettings: Codable, Sendable {
         }
     }
 
-    public struct Video: Codable, Sendable {
+    public struct StreamPreset: Codable, Sendable, Hashable {
+        public var screenMode: StreamMode
         public var resolution: StreamConfiguration.Video.Resolution
         public var fps: Int
-        public var fullscreenResolution: StreamConfiguration.Video.Resolution
-        public var fullscreenFPS: Int
-        public var prefersNativeFullscreenVideoMode: Bool
-        public var prefersNativeFullscreenRawMouseInput: Bool
+        public var mouseMode: StreamMouseModePreference
+
+        public init(
+            screenMode: StreamMode,
+            resolution: StreamConfiguration.Video.Resolution,
+            fps: Int,
+            mouseMode: StreamMouseModePreference
+        ) {
+            self.screenMode = screenMode
+            self.resolution = Self.normalizedResolution(resolution)
+            self.fps = Self.normalizedFPS(fps)
+            self.mouseMode = mouseMode
+        }
+
+        private static func normalizedResolution(
+            _ resolution: StreamConfiguration.Video.Resolution
+        ) -> StreamConfiguration.Video.Resolution {
+            AppSettings.Video.isSupportedResolution(resolution) ? resolution : StreamConfiguration.fallback.video.resolution
+        }
+
+        private static func normalizedFPS(_ fps: Int) -> Int {
+            AppSettings.Video.isSupportedFPS(fps) ? fps : StreamConfiguration.fallback.video.fps
+        }
+    }
+
+    public struct Video: Codable, Sendable {
+        public var presets: [StreamPreset]
         public var bitrateKbps: Int
         public var packetSize: Int
         public var supportedResolutions: [StreamConfiguration.Video.Resolution]
 
         public init(
-            resolution: StreamConfiguration.Video.Resolution,
-            fps: Int,
-            fullscreenResolution: StreamConfiguration.Video.Resolution,
-            fullscreenFPS: Int,
-            prefersNativeFullscreenVideoMode: Bool,
-            prefersNativeFullscreenRawMouseInput: Bool,
+            presets: [StreamPreset],
             bitrateKbps: Int,
             packetSize: Int,
             supportedResolutions: [StreamConfiguration.Video.Resolution]
         ) {
-            self.resolution = resolution
-            self.fps = Self.normalizedFPS(fps)
-            self.fullscreenResolution = fullscreenResolution
-            self.fullscreenFPS = Self.normalizedFPS(fullscreenFPS)
-            self.prefersNativeFullscreenVideoMode = prefersNativeFullscreenVideoMode
-            self.prefersNativeFullscreenRawMouseInput = prefersNativeFullscreenRawMouseInput
+            self.presets = Self.normalizedPresets(presets)
             self.bitrateKbps = bitrateKbps
             self.packetSize = packetSize
             self.supportedResolutions = Self.normalizedSupportedResolutions(supportedResolutions)
         }
 
         private enum CodingKeys: String, CodingKey {
+            case presets
             case resolution
             case width
             case height
@@ -84,24 +99,51 @@ public struct AppSettings: Codable, Sendable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            if let decodedResolution = try container.decodeIfPresent(StreamConfiguration.Video.Resolution.self, forKey: .resolution) {
-                resolution = decodedResolution
+            if let decodedPresets = try container.decodeIfPresent([StreamPreset].self, forKey: .presets) {
+                presets = Self.normalizedPresets(decodedPresets)
             } else {
-                resolution = StreamConfiguration.Video.Resolution(
+                let windowedResolution: StreamConfiguration.Video.Resolution
+                if let decodedResolution = try container.decodeIfPresent(StreamConfiguration.Video.Resolution.self, forKey: .resolution) {
+                    windowedResolution = decodedResolution
+                } else {
+                    windowedResolution = StreamConfiguration.Video.Resolution(
                     width: try container.decodeIfPresent(Int.self, forKey: .width) ?? StreamConfiguration.fallback.video.resolution.width,
                     height: try container.decodeIfPresent(Int.self, forKey: .height) ?? StreamConfiguration.fallback.video.resolution.height
                 )
+                }
+
+                let windowedFPS = Self.normalizedFPS(
+                    try container.decodeIfPresent(Int.self, forKey: .fps) ?? StreamConfiguration.fallback.video.fps
+                )
+                let fullscreenResolution = try container.decodeIfPresent(StreamConfiguration.Video.Resolution.self, forKey: .fullscreenResolution)
+                    ?? windowedResolution
+                let fullscreenFPS = Self.normalizedFPS(
+                    try container.decodeIfPresent(Int.self, forKey: .fullscreenFPS) ?? windowedFPS
+                )
+                let fullscreenMouseMode: StreamMouseModePreference =
+                    (try container.decodeIfPresent(Bool.self, forKey: .prefersNativeFullscreenRawMouseInput) ?? true) ? .raw : .absolute
+
+                presets = Self.normalizedPresets([
+                    .init(
+                        screenMode: .windowed,
+                        resolution: windowedResolution,
+                        fps: windowedFPS,
+                        mouseMode: .absolute
+                    ),
+                    .init(
+                        screenMode: .fullscreen,
+                        resolution: fullscreenResolution,
+                        fps: fullscreenFPS,
+                        mouseMode: fullscreenMouseMode
+                    ),
+                    .init(
+                        screenMode: .fullscreen,
+                        resolution: fullscreenResolution,
+                        fps: fullscreenFPS,
+                        mouseMode: fullscreenMouseMode
+                    )
+                ])
             }
-            fps = Self.normalizedFPS(
-                try container.decodeIfPresent(Int.self, forKey: .fps) ?? StreamConfiguration.fallback.video.fps
-            )
-            fullscreenResolution = try container.decodeIfPresent(StreamConfiguration.Video.Resolution.self, forKey: .fullscreenResolution)
-                ?? resolution
-            fullscreenFPS = Self.normalizedFPS(
-                try container.decodeIfPresent(Int.self, forKey: .fullscreenFPS) ?? fps
-            )
-            prefersNativeFullscreenVideoMode = try container.decodeIfPresent(Bool.self, forKey: .prefersNativeFullscreenVideoMode) ?? true
-            prefersNativeFullscreenRawMouseInput = try container.decodeIfPresent(Bool.self, forKey: .prefersNativeFullscreenRawMouseInput) ?? true
             bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps) ?? StreamConfiguration.fallback.video.bitrateKbps
             packetSize = try container.decodeIfPresent(Int.self, forKey: .packetSize) ?? StreamConfiguration.fallback.video.packetSize
 
@@ -112,12 +154,7 @@ public struct AppSettings: Codable, Sendable {
 
         public func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(resolution, forKey: .resolution)
-            try container.encode(fps, forKey: .fps)
-            try container.encode(fullscreenResolution, forKey: .fullscreenResolution)
-            try container.encode(fullscreenFPS, forKey: .fullscreenFPS)
-            try container.encode(prefersNativeFullscreenVideoMode, forKey: .prefersNativeFullscreenVideoMode)
-            try container.encode(prefersNativeFullscreenRawMouseInput, forKey: .prefersNativeFullscreenRawMouseInput)
+            try container.encode(presets, forKey: .presets)
             try container.encode(bitrateKbps, forKey: .bitrateKbps)
             try container.encode(packetSize, forKey: .packetSize)
             try container.encode(supportedResolutions, forKey: .supportedResolutions)
@@ -154,6 +191,60 @@ public struct AppSettings: Codable, Sendable {
             fps > 0
         }
 
+        public static func normalizedPresets(_ presets: [StreamPreset]) -> [StreamPreset] {
+            var normalized = presets.prefix(StreamPresetID.allCases.count).map { preset in
+                StreamPreset(
+                    screenMode: preset.screenMode,
+                    resolution: preset.resolution,
+                    fps: preset.fps,
+                    mouseMode: preset.mouseMode
+                )
+            }
+
+            let defaults = defaultPresets
+            while normalized.count < StreamPresetID.allCases.count {
+                normalized.append(defaults[normalized.count])
+            }
+
+            return normalized
+        }
+
+        public func preset(_ id: StreamPresetID) -> StreamPreset {
+            let normalized = Self.normalizedPresets(presets)
+            return normalized[id.index]
+        }
+
+        public mutating func setPreset(_ preset: StreamPreset, for id: StreamPresetID) {
+            presets = Self.normalizedPresets(presets)
+            presets[id.index] = StreamPreset(
+                screenMode: preset.screenMode,
+                resolution: preset.resolution,
+                fps: preset.fps,
+                mouseMode: preset.mouseMode
+            )
+        }
+
+        public static let defaultPresets: [StreamPreset] = [
+            .init(
+                screenMode: .windowed,
+                resolution: StreamConfiguration.fallback.video.resolution,
+                fps: StreamConfiguration.fallback.video.fps,
+                mouseMode: .absolute
+            ),
+            .init(
+                screenMode: .fullscreen,
+                resolution: StreamConfiguration.fallback.video.resolution,
+                fps: StreamConfiguration.fallback.video.fps,
+                mouseMode: .raw
+            ),
+            .init(
+                screenMode: .fullscreen,
+                resolution: StreamConfiguration.fallback.video.resolution,
+                fps: StreamConfiguration.fallback.video.fps,
+                mouseMode: .raw
+            )
+        ]
+
         private static func normalizedFPS(_ fps: Int) -> Int {
             isSupportedFPS(fps) ? fps : StreamConfiguration.fallback.video.fps
         }
@@ -180,13 +271,14 @@ public struct AppSettings: Codable, Sendable {
     public var host: HostAuthority?
     public var input: Input
     public var video: Video
-    public var streamMode: StreamMode
+    public var selectedStreamPresetID: StreamPresetID
     public var pendingPairingResetOnNextLaunch: Bool
 
     private enum CodingKeys: String, CodingKey {
         case host
         case input
         case video
+        case selectedStreamPresetID
         case streamMode
         case launchesFullscreen
         case pendingPairingResetOnNextLaunch
@@ -196,13 +288,13 @@ public struct AppSettings: Codable, Sendable {
         host: HostAuthority?,
         input: Input,
         video: Video,
-        streamMode: StreamMode,
+        selectedStreamPresetID: StreamPresetID,
         pendingPairingResetOnNextLaunch: Bool
     ) {
         self.host = host
         self.input = input
         self.video = video
-        self.streamMode = streamMode
+        self.selectedStreamPresetID = selectedStreamPresetID
         self.pendingPairingResetOnNextLaunch = pendingPairingResetOnNextLaunch
     }
 
@@ -211,10 +303,17 @@ public struct AppSettings: Codable, Sendable {
         host = try container.decodeIfPresent(HostAuthority.self, forKey: .host)
         input = try container.decodeIfPresent(Input.self, forKey: .input) ?? AppSettings.initial.input
         video = try container.decodeIfPresent(Video.self, forKey: .video) ?? AppSettings.initial.video
-        if let decodedMode = try container.decodeIfPresent(StreamMode.self, forKey: .streamMode) {
-            streamMode = decodedMode
+        if let decodedPresetID = try container.decodeIfPresent(StreamPresetID.self, forKey: .selectedStreamPresetID) {
+            selectedStreamPresetID = decodedPresetID
         } else {
-            streamMode = (try container.decodeIfPresent(Bool.self, forKey: .launchesFullscreen) ?? false) ? .fullscreen : .windowed
+            let legacyMode: StreamMode
+            if let decodedMode = try container.decodeIfPresent(StreamMode.self, forKey: .streamMode) {
+                legacyMode = decodedMode
+            } else {
+                legacyMode = (try container.decodeIfPresent(Bool.self, forKey: .launchesFullscreen) ?? false) ? .fullscreen : .windowed
+            }
+
+            selectedStreamPresetID = legacyMode == .fullscreen ? .two : .one
         }
         pendingPairingResetOnNextLaunch = try container.decodeIfPresent(Bool.self, forKey: .pendingPairingResetOnNextLaunch) ?? false
     }
@@ -224,19 +323,14 @@ public struct AppSettings: Codable, Sendable {
         try container.encodeIfPresent(host, forKey: .host)
         try container.encode(input, forKey: .input)
         try container.encode(video, forKey: .video)
-        try container.encode(streamMode, forKey: .streamMode)
+        try container.encode(selectedStreamPresetID, forKey: .selectedStreamPresetID)
         try container.encode(pendingPairingResetOnNextLaunch, forKey: .pendingPairingResetOnNextLaunch)
     }
 }
 
 public extension AppSettings {
     static let initialWindowedVideo = Video(
-        resolution: StreamConfiguration.fallback.video.resolution,
-        fps: StreamConfiguration.fallback.video.fps,
-        fullscreenResolution: StreamConfiguration.fallback.video.resolution,
-        fullscreenFPS: StreamConfiguration.fallback.video.fps,
-        prefersNativeFullscreenVideoMode: true,
-        prefersNativeFullscreenRawMouseInput: true,
+        presets: Video.defaultPresets,
         bitrateKbps: StreamConfiguration.fallback.video.bitrateKbps,
         packetSize: StreamConfiguration.fallback.video.packetSize,
         supportedResolutions: AppSettings.Video.defaultSupportedResolutions
@@ -246,9 +340,13 @@ public extension AppSettings {
         host: nil,
         input: .init(rawMouseSensitivity: AppSettings.Input.defaultRawMouseSensitivity),
         video: initialWindowedVideo,
-        streamMode: .windowed,
+        selectedStreamPresetID: .one,
         pendingPairingResetOnNextLaunch: false
     )
+
+    var selectedStreamPreset: StreamPreset {
+        video.preset(selectedStreamPresetID)
+    }
 
     func makeConfiguration(
         appID: Int,
@@ -261,7 +359,9 @@ public extension AppSettings {
             throw AppSettingsError.missingHost
         }
 
-        let requestedResolution = resolution ?? video.resolution
+        let preset = selectedStreamPreset
+        let requestedResolution = resolution ?? preset.resolution
+        let requestedFPS = fps ?? preset.fps
 
         return StreamConfiguration(
             host: .init(address: host.address, port: host.port, appID: appID),
@@ -269,7 +369,7 @@ public extension AppSettings {
             input: .init(rawMouseSensitivity: input.rawMouseSensitivity),
             video: .init(
                 resolution: requestedResolution,
-                fps: fps ?? video.fps,
+                fps: requestedFPS,
                 bitrateKbps: video.bitrateKbps,
                 packetSize: video.packetSize
             )
@@ -280,6 +380,28 @@ public extension AppSettings {
 public enum StreamMode: String, Codable, Sendable, Hashable {
     case windowed
     case fullscreen
+}
+
+public enum StreamPresetID: String, Codable, CaseIterable, Sendable, Hashable {
+    case one
+    case two
+    case three
+
+    public var index: Int {
+        switch self {
+        case .one:
+            return 0
+        case .two:
+            return 1
+        case .three:
+            return 2
+        }
+    }
+}
+
+public enum StreamMouseModePreference: String, Codable, Sendable, Hashable {
+    case absolute
+    case raw
 }
 
 public enum AppSettingsError: Error, LocalizedError {
