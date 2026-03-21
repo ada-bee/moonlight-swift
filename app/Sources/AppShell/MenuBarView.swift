@@ -58,10 +58,7 @@ struct MenuBarView: View {
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
 
-                Text(presentation.description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                statusDetail
             }
 
             Spacer(minLength: 0)
@@ -92,6 +89,66 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
             .help("Quit")
         }
+    }
+
+    private var statusDetail: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Text(presentation.description)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if showsModeGlyphs {
+                HStack(spacing: 6) {
+                    modeGlyph(systemImage: screenModeGlyphSystemImage, helpText: screenModeGlyphHelpText)
+                    modeGlyph(systemImage: mouseModeGlyphSystemImage, helpText: mouseModeGlyphHelpText)
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(statusDetailAccessibilityLabel)
+    }
+
+    private var showsModeGlyphs: Bool {
+        switch presentation.state {
+        case .offline:
+            return false
+        case .ready, .paused, .streaming:
+            return true
+        }
+    }
+
+    private var screenModeGlyphSystemImage: String {
+        coordinator.configuredScreenMode == .fullscreen ? "rectangle.inset.filled" : "macwindow"
+    }
+
+    private var screenModeGlyphHelpText: String {
+        coordinator.configuredScreenMode == .fullscreen ? "Fullscreen" : "Windowed"
+    }
+
+    private var mouseModeGlyphSystemImage: String {
+        coordinator.configuredMouseModePreference == .raw ? "gamecontroller" : "cursorarrow.motionlines"
+    }
+
+    private var mouseModeGlyphHelpText: String {
+        coordinator.configuredMouseModePreference == .raw ? "Raw mouse input" : "Absolute mouse input"
+    }
+
+    private var statusDetailAccessibilityLabel: String {
+        guard showsModeGlyphs else {
+            return presentation.description
+        }
+
+        return "\(presentation.description), \(screenModeGlyphHelpText), \(mouseModeGlyphHelpText)"
+    }
+
+    private func modeGlyph(systemImage: String, helpText: String) -> some View {
+        Image(systemName: systemImage)
+            .imageScale(.small)
+            .help(helpText)
+            .accessibilityHidden(true)
     }
 
     private func utilityIconLabel(title: String, systemImage: String) -> some View {
