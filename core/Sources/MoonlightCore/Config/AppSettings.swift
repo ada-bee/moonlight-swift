@@ -141,6 +141,12 @@ public struct AppSettings: Codable, Sendable {
                         resolution: fullscreenResolution,
                         fps: fullscreenFPS,
                         mouseMode: fullscreenMouseMode
+                    ),
+                    .init(
+                        screenMode: .fullscreen,
+                        resolution: fullscreenResolution,
+                        fps: fullscreenFPS,
+                        mouseMode: fullscreenMouseMode
                     )
                 ])
             }
@@ -230,6 +236,12 @@ public struct AppSettings: Codable, Sendable {
                 resolution: StreamConfiguration.fallback.video.resolution,
                 fps: StreamConfiguration.fallback.video.fps,
                 mouseMode: .absolute
+            ),
+            .init(
+                screenMode: .fullscreen,
+                resolution: StreamConfiguration.fallback.video.resolution,
+                fps: StreamConfiguration.fallback.video.fps,
+                mouseMode: .raw
             ),
             .init(
                 screenMode: .fullscreen,
@@ -386,6 +398,7 @@ public enum StreamPresetID: String, Codable, CaseIterable, Sendable, Hashable {
     case one
     case two
     case three
+    case four
 
     public var index: Int {
         switch self {
@@ -395,6 +408,8 @@ public enum StreamPresetID: String, Codable, CaseIterable, Sendable, Hashable {
             return 1
         case .three:
             return 2
+        case .four:
+            return 3
         }
     }
 }

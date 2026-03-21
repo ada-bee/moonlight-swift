@@ -39,6 +39,12 @@ struct SettingsView: View {
     @State private var presetThreeScreenMode: StreamMode = .fullscreen
     @State private var presetThreeMouseMode: StreamMouseModePreference = .raw
 
+    @State private var presetFourWidthInput = ""
+    @State private var presetFourHeightInput = ""
+    @State private var presetFourFPSInput = ""
+    @State private var presetFourScreenMode: StreamMode = .fullscreen
+    @State private var presetFourMouseMode: StreamMouseModePreference = .raw
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -81,7 +87,7 @@ struct SettingsView: View {
     private var streamSection: some View {
         preferenceSection(
             title: "Presets",
-            description: "Configure the three launch presets shown in the menu bar popup."
+            description: "Configure the four launch presets shown in the menu bar popup."
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 streamPresetEditor(
@@ -116,6 +122,18 @@ struct SettingsView: View {
                     fps: $presetThreeFPSInput,
                     mouseMode: $presetThreeMouseMode,
                     action: { saveStreamPreset(.three) }
+                )
+
+                Divider()
+
+                streamPresetEditor(
+                    title: "Preset 4",
+                    screenMode: $presetFourScreenMode,
+                    width: $presetFourWidthInput,
+                    height: $presetFourHeightInput,
+                    fps: $presetFourFPSInput,
+                    mouseMode: $presetFourMouseMode,
+                    action: { saveStreamPreset(.four) }
                 )
             }
 
@@ -329,6 +347,7 @@ struct SettingsView: View {
         syncPresetInput(.one)
         syncPresetInput(.two)
         syncPresetInput(.three)
+        syncPresetInput(.four)
     }
 
     private func syncPresetInput(_ presetID: StreamPresetID) {
@@ -353,6 +372,12 @@ struct SettingsView: View {
             presetThreeFPSInput = String(preset.fps)
             presetThreeScreenMode = preset.screenMode
             presetThreeMouseMode = preset.mouseMode
+        case .four:
+            presetFourWidthInput = String(preset.resolution.width)
+            presetFourHeightInput = String(preset.resolution.height)
+            presetFourFPSInput = String(preset.fps)
+            presetFourScreenMode = preset.screenMode
+            presetFourMouseMode = preset.mouseMode
         }
     }
 
@@ -616,6 +641,8 @@ struct SettingsView: View {
             return "2"
         case .three:
             return "3"
+        case .four:
+            return "4"
         }
     }
 
@@ -625,8 +652,10 @@ struct SettingsView: View {
             return .one
         case "Preset 2":
             return .two
-        default:
+        case "Preset 3":
             return .three
+        default:
+            return .four
         }
     }
 
@@ -638,6 +667,8 @@ struct SettingsView: View {
             return presetTwoWidthInput
         case .three:
             return presetThreeWidthInput
+        case .four:
+            return presetFourWidthInput
         }
     }
 
@@ -649,6 +680,8 @@ struct SettingsView: View {
             return presetTwoHeightInput
         case .three:
             return presetThreeHeightInput
+        case .four:
+            return presetFourHeightInput
         }
     }
 
@@ -660,6 +693,8 @@ struct SettingsView: View {
             return presetTwoFPSInput
         case .three:
             return presetThreeFPSInput
+        case .four:
+            return presetFourFPSInput
         }
     }
 
@@ -671,6 +706,8 @@ struct SettingsView: View {
             return presetTwoScreenMode
         case .three:
             return presetThreeScreenMode
+        case .four:
+            return presetFourScreenMode
         }
     }
 
@@ -682,6 +719,8 @@ struct SettingsView: View {
             return presetTwoMouseMode
         case .three:
             return presetThreeMouseMode
+        case .four:
+            return presetFourMouseMode
         }
     }
 

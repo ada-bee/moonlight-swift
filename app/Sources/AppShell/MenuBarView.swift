@@ -66,7 +66,7 @@ struct MenuBarView: View {
 
             Spacer(minLength: 0)
 
-            presetSelector
+            utilitySection
         }
     }
 
@@ -74,7 +74,7 @@ struct MenuBarView: View {
         HStack(spacing: 10) {
             popupActionButton(presentation.primaryButton, prominence: primaryButtonProminence)
             popupActionButton(presentation.secondaryButton, prominence: .destructive, role: .destructive)
-            utilitySection
+            presetSelector
         }
     }
 
@@ -111,8 +111,10 @@ struct MenuBarView: View {
             }
         }
         .pickerStyle(.segmented)
+        .controlSize(.large)
         .labelsHidden()
-        .frame(width: 108)
+        .frame(width: 144)
+        .frame(minHeight: 34)
         .help(selectedPresetHelpText)
         .disabled(coordinator.launchInProgress || coordinator.stopInProgress)
         .accessibilityLabel(selectedPresetAccessibilityLabel)
@@ -215,6 +217,8 @@ struct MenuBarView: View {
             return "2"
         case .three:
             return "3"
+        case .four:
+            return "4"
         }
     }
 
